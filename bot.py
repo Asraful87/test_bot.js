@@ -41,7 +41,8 @@ class ModBot(commands.Bot):
         intents.message_content = True
 
         super().__init__(
-            command_prefix=BOT_PREFIX,   # allows ! commands IF your cogs use @commands.command
+            command_prefix=BOT_PREFIX,   # classic prefix commands (e.g., !ping)
+            case_insensitive=True,
             intents=intents,
             help_command=None
         )
@@ -49,9 +50,15 @@ class ModBot(commands.Bot):
         self.config = config
         self.db = DatabaseManager()
 
+        # Global check: ensure bot has View/Send in the current text channel
+        self.add_check(self._channel_perms_check)
+
     async def setup_hook(self):
         await self.db.init_db()
         logger.info("Database initialized")
+        logger.info(f"Prefix commands enabled with prefix: '{BOT_PREFIX}' (case-insensitive)")
+        if not self.intents.message_content:
+            logger.warning("Message Content Intent is disabled; prefix commands will not work. Enable it in the Developer Portal.")
 
         cogs = [
             "cogs.moderation",
@@ -97,6 +104,63 @@ class ModBot(commands.Bot):
                 name="/help"
             )
         )
+
+        # Startup sanity check: warn if missing read/send in text channels
+        try:
+            for guild in self.guilds:
+                me = guild.me
+                missing_channels = []
+                for ch in guild.text_channels:
+                    perms = ch.permissions_for(me)
+                    if not (perms.view_channel and perms.send_messages):
+                        missing_channels.append(ch.name)
+
+                if missing_channels:
+                    sample = ", ".join(missing_channels[:5])
+                    more = len(missing_channels) - min(5, len(missing_channels))
+                    suffix = f" …(+{more} more)" if more > 0 else ""
+                    logger.warning(
+                        f"⚠️ Guild '{guild.name}': missing View/Send in {len(missing_channels)} channel(s): {sample}{suffix}"
+                    )
+        except Exception:
+            logger.exception("Permission check failed during on_ready")
+
+    async def _channel_perms_check(self, ctx: commands.Context) -> bool:
+        """Global check for prefix commands to ensure the bot can reply.
+
+        If the bot lacks Send Messages in the current text channel, attempts to
+        DM the user a friendly notice and prevents command execution.
+        """
+        try:
+            # Only applies to guild text channels; DMs are fine
+            if hasattr(ctx, "guild") and ctx.guild and isinstance(ctx.channel, discord.TextChannel):
+                me = ctx.guild.me
+                perms = ctx.channel.permissions_for(me)
+
+                # If the bot cannot view the channel, the command wouldn't reach here
+                if not perms.view_channel:
+                    return False
+
+                if not perms.send_messages:
+                    # Try to notify the user via DM; ignore failures
+                    try:
+                        await ctx.author.send(
+                            f"I can't send messages in {ctx.channel.mention}. "
+                            "Ask an admin to grant me 'View Channel' and 'Send Messages' permissions."
+                        )
+                    except Exception:
+                        pass
+
+                    logger.warning(
+                        f"Prefix command blocked: missing Send Messages in #{ctx.channel} (guild: {ctx.guild.name})"
+                    )
+                    return False
+
+            return True
+        except Exception:
+            # On any error, allow command to proceed to avoid false negatives
+            logger.exception("Global channel perms check error")
+            return True
 
 
 async def main():

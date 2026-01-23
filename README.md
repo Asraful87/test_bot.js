@@ -40,7 +40,7 @@ python bot.py
 - `DISCORD_TOKEN`: Your Discord bot token from the Discord Developer Portal
 
 ### config.yaml
-- `bot.prefix`: Command prefix (default: !)
+- `bot.command_prefix`: Command prefix for classic text commands (default: !)
 - `moderation`: Moderation settings and auto-actions
 - `permissions`: Role-based permissions
 - `features`: Channel configurations
@@ -77,8 +77,13 @@ python bot.py
 - `!serverinfo` - Display server information
 - `!userinfo [member]` - Display user information
 
-### Setup
-- `!setup` - Start the setup wizard
+### Slash Setup Commands
+- `/setup-wizard` - Show setup steps
+- `/setup-logchannel #channel` - Set mod log channel
+- `/setup-welcomechannel #channel` - Set welcome channel
+- `/setup-config` - View current configuration
+
+Note: Slash commands are the primary interface. Classic `!` prefix commands are also available and use the prefix from `bot.command_prefix`.
 
 ## Permissions
 

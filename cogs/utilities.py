@@ -143,6 +143,36 @@ class Utilities(commands.Cog):
         embed.add_field(name="discord.py Version", value=discord.__version__, inline=True)
         
         await ctx.send(embed=embed)
+
+    @commands.command(name='health')
+    async def health(self, ctx):
+        """Show bot health diagnostics for prefix commands"""
+        # Resolve prefix from context and config
+        current_prefix = getattr(ctx, 'prefix', None)
+        configured_prefix = self.bot.config.get("bot", {}).get("command_prefix", "!") if hasattr(self.bot, 'config') else None
+
+        # Intents and flags
+        message_content_enabled = getattr(self.bot.intents, 'message_content', False)
+        case_insensitive = getattr(self.bot, 'case_insensitive', False)
+
+        # Loaded cogs
+        loaded_cogs = list(self.bot.cogs.keys())
+
+        embed = discord.Embed(title="Bot Health", color=discord.Color.blurple())
+        embed.add_field(name="Prefix (ctx)", value=str(current_prefix), inline=True)
+        embed.add_field(name="Prefix (config)", value=str(configured_prefix), inline=True)
+        embed.add_field(name="Case Insensitive", value="Yes" if case_insensitive else "No", inline=True)
+        embed.add_field(name="Message Content Intent", value="Enabled" if message_content_enabled else "Disabled", inline=True)
+        embed.add_field(name="Loaded Cogs", value=", ".join(loaded_cogs) or "None", inline=False)
+
+        # Channel permission quick check
+        if ctx.guild:
+            me = ctx.guild.me
+            perms = ctx.channel.permissions_for(me)
+            perms_ok = perms.view_channel and perms.send_messages
+            embed.add_field(name="Channel Permissions", value=("OK" if perms_ok else "Missing read/send"), inline=True)
+
+        await ctx.send(embed=embed)
     
     @commands.command(name='help')
     async def help_command(self, ctx, command: str = None):
