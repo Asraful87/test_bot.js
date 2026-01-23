@@ -1,231 +1,364 @@
 """
-Moderation Cog
+Moderation Cog (SLASH COMMANDS)
 Handles kick, ban, warn, timeout, and other moderation commands
 """
+
+from __future__ import annotations
+
 import discord
 from discord.ext import commands
+from discord import app_commands
 from datetime import timedelta
 from utils.embeds import create_error_embed
 from utils.confirmations import ConfirmView
 
 
 class Moderation(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-    
-    @commands.command(name='kick')
-    @commands.has_permissions(kick_members=True)
-    @commands.guild_only()
-    async def kick(self, ctx, member: discord.Member, *, reason: str = "No reason provided"):
-        """Kick a member from the server"""
-        if member.top_role >= ctx.author.top_role:
-            await ctx.send(embed=create_error_embed("You cannot kick someone with a higher or equal role."))
-            return
-        
-        if member == ctx.guild.owner:
-            await ctx.send(embed=create_error_embed("You cannot kick the server owner."))
-            return
-        
+
+    # ---------- KICK ----------
+    @app_commands.command(name="kick", description="Kick a member from the server.")
+    @app_commands.checks.has_permissions(kick_members=True)
+    @app_commands.guild_only()
+    async def kick(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        reason: str = "No reason provided",
+    ):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        author = interaction.user
+
+        if member == interaction.guild.owner:
+            return await interaction.response.send_message(embed=create_error_embed("You cannot kick the server owner."), ephemeral=True)
+
+        if member.top_role >= author.top_role and author.id != interaction.guild.owner_id:
+            return await interaction.response.send_message(
+                embed=create_error_embed("You cannot kick someone with a higher or equal role."),
+                ephemeral=True,
+            )
+
         try:
-            await member.kick(reason=f"{reason} | Kicked by {ctx.author}")
-            await self.bot.db.log_action(ctx.guild.id, "kick", member.id, ctx.author.id, reason)
-            
+            await member.kick(reason=f"{reason} | Kicked by {author} ({author.id})")
+            await self.bot.db.log_action(interaction.guild.id, "kick", member.id, author.id, reason)
+
             embed = discord.Embed(
                 title="Member Kicked",
-                description=f"{member.mention} has been kicked.\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason}",
-                color=discord.Color.orange()
+                description=f"{member.mention} has been kicked.\n**Moderator:** {author.mention}\n**Reason:** {reason}",
+                color=discord.Color.orange(),
             )
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
         except discord.Forbidden:
-            await ctx.send(embed=create_error_embed("I don't have permission to kick this member."))
-    
-    @commands.command(name='ban')
-    @commands.has_permissions(ban_members=True)
-    @commands.guild_only()
-    async def ban(self, ctx, member: discord.Member, *, reason: str = "No reason provided"):
-        """Ban a member from the server"""
-        if member.top_role >= ctx.author.top_role:
-            await ctx.send(embed=create_error_embed("You cannot ban someone with a higher or equal role."))
-            return
-        
-        if member == ctx.guild.owner:
-            await ctx.send(embed=create_error_embed("You cannot ban the server owner."))
-            return
-        
-        # Confirmation
-        view = ConfirmView(ctx.author)
-        msg = await ctx.send(
-            f"Are you sure you want to ban {member.mention}?",
-            view=view
+            await interaction.response.send_message(embed=create_error_embed("I don't have permission to kick this member."), ephemeral=True)
+
+    # ---------- BAN ----------
+    @app_commands.command(name="ban", description="Ban a member from the server (with confirmation).")
+    @app_commands.checks.has_permissions(ban_members=True)
+    @app_commands.guild_only()
+    async def ban(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        reason: str = "No reason provided",
+    ):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        author = interaction.user
+
+        if member == interaction.guild.owner:
+            return await interaction.response.send_message(embed=create_error_embed("You cannot ban the server owner."), ephemeral=True)
+
+        if member.top_role >= author.top_role and author.id != interaction.guild.owner_id:
+            return await interaction.response.send_message(
+                embed=create_error_embed("You cannot ban someone with a higher or equal role."),
+                ephemeral=True,
+            )
+
+        # Confirmation UI
+        view = ConfirmView(author)
+        await interaction.response.send_message(
+            content=f"Are you sure you want to ban {member.mention}?",
+            view=view,
+            ephemeral=True,
         )
         await view.wait()
-        
-        if not view.value:
-            await msg.edit(content="Ban cancelled.", view=None)
-            return
-        
+
+        # We need to edit the original response message
         try:
-            await member.ban(reason=f"{reason} | Banned by {ctx.author}")
-            await self.bot.db.log_action(ctx.guild.id, "ban", member.id, ctx.author.id, reason)
-            
+            msg = await interaction.original_response()
+        except Exception:
+            msg = None
+
+        if not view.value:
+            if msg:
+                return await msg.edit(content="❌ Ban cancelled.", view=None)
+            return
+
+        try:
+            await member.ban(reason=f"{reason} | Banned by {author} ({author.id})")
+            await self.bot.db.log_action(interaction.guild.id, "ban", member.id, author.id, reason)
+
             embed = discord.Embed(
                 title="Member Banned",
-                description=f"{member.mention} has been banned.\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason}",
-                color=discord.Color.red()
+                description=f"{member.mention} has been banned.\n**Moderator:** {author.mention}\n**Reason:** {reason}",
+                color=discord.Color.red(),
             )
-            await msg.edit(content=None, embed=embed, view=None)
+            if msg:
+                await msg.edit(content=None, embed=embed, view=None)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=True)
         except discord.Forbidden:
-            await msg.edit(content="I don't have permission to ban this member.", view=None)
-    
-    @commands.command(name='unban')
-    @commands.has_permissions(ban_members=True)
-    @commands.guild_only()
-    async def unban(self, ctx, user_id: int):
-        """Unban a user from the server"""
+            if msg:
+                await msg.edit(content="❌ I don't have permission to ban this member.", view=None)
+            else:
+                await interaction.followup.send(embed=create_error_embed("I don't have permission to ban this member."), ephemeral=True)
+
+    # ---------- UNBAN (by user ID) ----------
+    @app_commands.command(name="unban", description="Unban a user by their user ID.")
+    @app_commands.checks.has_permissions(ban_members=True)
+    @app_commands.guild_only()
+    async def unban(self, interaction: discord.Interaction, user_id: str):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        author = interaction.user
+
+        # allow passing "<@123>" or "123"
+        cleaned = user_id.strip().replace("<@", "").replace(">", "").replace("!", "")
+        if not cleaned.isdigit():
+            return await interaction.response.send_message(embed=create_error_embed("Please provide a valid user ID."), ephemeral=True)
+
+        uid = int(cleaned)
+
         try:
-            user = await self.bot.fetch_user(user_id)
-            await ctx.guild.unban(user)
-            await self.bot.db.log_action(ctx.guild.id, "unban", user.id, ctx.author.id, None)
-            
+            user = await self.bot.fetch_user(uid)
+            await interaction.guild.unban(user)
+            await self.bot.db.log_action(interaction.guild.id, "unban", user.id, author.id, None)
+
             embed = discord.Embed(
                 title="User Unbanned",
-                description=f"{user.mention} has been unbanned.\n**Moderator:** {ctx.author.mention}",
-                color=discord.Color.green()
+                description=f"{user.mention} has been unbanned.\n**Moderator:** {author.mention}",
+                color=discord.Color.green(),
             )
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
         except discord.NotFound:
-            await ctx.send(embed=create_error_embed("User not found or not banned."))
+            await interaction.response.send_message(embed=create_error_embed("User not found or not banned."), ephemeral=True)
         except discord.Forbidden:
-            await ctx.send(embed=create_error_embed("I don't have permission to unban users."))
-    
-    @commands.command(name='warn')
-    @commands.has_permissions(moderate_members=True)
-    @commands.guild_only()
-    async def warn(self, ctx, member: discord.Member, *, reason: str = "No reason provided"):
-        """Warn a member"""
-        if member.top_role >= ctx.author.top_role:
-            await ctx.send(embed=create_error_embed("You cannot warn someone with a higher or equal role."))
-            return
-        
-        # Add warning to database
-        await self.bot.db.add_warning(ctx.guild.id, member.id, ctx.author.id, reason)
-        await self.bot.db.log_action(ctx.guild.id, "warn", member.id, ctx.author.id, reason)
-        
-        # Get warning count
-        warnings = await self.bot.db.get_warnings(ctx.guild.id, member.id)
-        warning_count = len(warnings)
-        
+            await interaction.response.send_message(embed=create_error_embed("I don't have permission to unban users."), ephemeral=True)
+
+    # ---------- WARN ----------
+    @app_commands.command(name="warn", description="Warn a member.")
+    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    async def warn(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        reason: str = "No reason provided",
+    ):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        author = interaction.user
+
+        if member.top_role >= author.top_role and author.id != interaction.guild.owner_id:
+            return await interaction.response.send_message(
+                embed=create_error_embed("You cannot warn someone with a higher or equal role."),
+                ephemeral=True,
+            )
+
+        await self.bot.db.add_warning(interaction.guild.id, member.id, author.id, reason)
+        await self.bot.db.log_action(interaction.guild.id, "warn", member.id, author.id, reason)
+
+        # ✅ better than len(get_warnings()) (in case you ever limit results later)
+        warning_count = await self.bot.db.get_warning_count(interaction.guild.id, member.id)
+
         embed = discord.Embed(
             title="Member Warned",
-            description=f"{member.mention} has been warned.\n**Total Warnings:** {warning_count}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason}",
-            color=discord.Color.orange()
+            description=(
+                f"{member.mention} has been warned.\n"
+                f"**Total Warnings:** {warning_count}\n"
+                f"**Moderator:** {author.mention}\n"
+                f"**Reason:** {reason}"
+            ),
+            color=discord.Color.orange(),
         )
-        await ctx.send(embed=embed)
-        
-        # Try to DM the user
+        await interaction.response.send_message(embed=embed)
+
+        # Try DM
         try:
             dm_embed = discord.Embed(
-                title=f"Warning in {ctx.guild.name}",
+                title=f"Warning in {interaction.guild.name}",
                 description=f"**Reason:** {reason}\n**Total Warnings:** {warning_count}",
-                color=discord.Color.orange()
+                color=discord.Color.orange(),
             )
             await member.send(embed=dm_embed)
-        except:
+        except Exception:
             pass
-        
-        # Check for auto-action
-        warn_threshold = self.bot.config['moderation']['warn_threshold']
-        auto_action = self.bot.config['moderation']['warn_threshold_action']
-        
-        if warning_count >= warn_threshold and auto_action != 'none':
-            if auto_action == 'timeout':
-                duration = self.bot.config['moderation']['warn_threshold_timeout_duration']
-                await member.timeout(timedelta(minutes=duration), reason=f"Reached {warn_threshold} warnings")
-                await ctx.send(f"⚠️ {member.mention} has been timed out for reaching {warn_threshold} warnings.")
-            elif auto_action == 'kick':
-                await member.kick(reason=f"Reached {warn_threshold} warnings")
-                await ctx.send(f"⚠️ {member.mention} has been kicked for reaching {warn_threshold} warnings.")
-            elif auto_action == 'ban':
-                await member.ban(reason=f"Reached {warn_threshold} warnings")
-                await ctx.send(f"⚠️ {member.mention} has been banned for reaching {warn_threshold} warnings.")
-    
-    @commands.command(name='warnings')
-    @commands.has_permissions(moderate_members=True)
-    @commands.guild_only()
-    async def warnings(self, ctx, member: discord.Member):
-        """View warnings for a member"""
-        warnings = await self.bot.db.get_warnings(ctx.guild.id, member.id)
-        
+
+        # Auto action
+        warn_threshold = self.bot.config["moderation"]["warn_threshold"]
+        auto_action = self.bot.config["moderation"]["warn_threshold_action"]
+
+        if warning_count >= warn_threshold and auto_action != "none":
+            if auto_action == "timeout":
+                duration = self.bot.config["moderation"]["warn_threshold_timeout_duration"]
+                try:
+                    await member.timeout(timedelta(minutes=duration), reason=f"Reached {warn_threshold} warnings")
+                    await interaction.followup.send(
+                        f"⚠️ {member.mention} has been timed out for reaching {warn_threshold} warnings.",
+                        ephemeral=False,
+                    )
+                except discord.Forbidden:
+                    await interaction.followup.send(embed=create_error_embed("I don't have permission to timeout this member."), ephemeral=True)
+
+            elif auto_action == "kick":
+                try:
+                    await member.kick(reason=f"Reached {warn_threshold} warnings")
+                    await interaction.followup.send(
+                        f"⚠️ {member.mention} has been kicked for reaching {warn_threshold} warnings.",
+                        ephemeral=False,
+                    )
+                except discord.Forbidden:
+                    await interaction.followup.send(embed=create_error_embed("I don't have permission to kick this member."), ephemeral=True)
+
+            elif auto_action == "ban":
+                try:
+                    await member.ban(reason=f"Reached {warn_threshold} warnings")
+                    await interaction.followup.send(
+                        f"⚠️ {member.mention} has been banned for reaching {warn_threshold} warnings.",
+                        ephemeral=False,
+                    )
+                except discord.Forbidden:
+                    await interaction.followup.send(embed=create_error_embed("I don't have permission to ban this member."), ephemeral=True)
+
+    # ---------- WARNINGS LIST ----------
+    @app_commands.command(name="warnings", description="View warnings for a member.")
+    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    async def warnings(self, interaction: discord.Interaction, member: discord.Member):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        warnings = await self.bot.db.get_warnings(interaction.guild.id, member.id)
+
         if not warnings:
-            await ctx.send(f"{member.mention} has no warnings.")
-            return
-        
+            return await interaction.response.send_message(f"{member.mention} has no warnings.", ephemeral=True)
+
         embed = discord.Embed(
             title=f"Warnings for {member}",
             description=f"Total warnings: {len(warnings)}",
-            color=discord.Color.orange()
+            color=discord.Color.orange(),
         )
-        
-        for i, warning in enumerate(warnings[:10], 1):  # Show last 10
-            moderator = ctx.guild.get_member(warning['moderator_id'])
-            mod_name = moderator.name if moderator else f"ID: {warning['moderator_id']}"
-            
+
+        # ✅ DB uses mod_id, not moderator_id
+        for i, warning in enumerate(warnings[:10], 1):
+            mod_id = warning.get("mod_id")
+            mod_name = f"<@{mod_id}>" if mod_id else "Unknown"
+
             embed.add_field(
                 name=f"Warning {i}",
-                value=f"**Reason:** {warning['reason'] or 'No reason'}\n**By:** {mod_name}\n**Date:** {warning['timestamp']}",
-                inline=False
+                value=(
+                    f"**Reason:** {warning.get('reason') or 'No reason'}\n"
+                    f"**By:** {mod_name}\n"
+                    f"**Date:** {warning.get('timestamp')}"
+                ),
+                inline=False,
             )
-        
-        await ctx.send(embed=embed)
-    
-    @commands.command(name='clearwarnings')
-    @commands.has_permissions(administrator=True)
-    @commands.guild_only()
-    async def clearwarnings(self, ctx, member: discord.Member):
-        """Clear all warnings for a member"""
-        await self.bot.db.clear_warnings(ctx.guild.id, member.id)
-        await ctx.send(f"✅ Cleared all warnings for {member.mention}.")
-    
-    @commands.command(name='timeout')
-    @commands.has_permissions(moderate_members=True)
-    @commands.guild_only()
-    async def timeout(self, ctx, member: discord.Member, duration: int, *, reason: str = "No reason provided"):
-        """Timeout a member (duration in minutes)"""
-        if member.top_role >= ctx.author.top_role:
-            await ctx.send(embed=create_error_embed("You cannot timeout someone with a higher or equal role."))
-            return
-        
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------- CLEAR WARNINGS ----------
+    @app_commands.command(name="clearwarnings", description="Clear all warnings for a member.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.guild_only()
+    async def clearwarnings(self, interaction: discord.Interaction, member: discord.Member):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        cleared = await self.bot.db.clear_warnings(interaction.guild.id, member.id)
+        await interaction.response.send_message(f"✅ Cleared {cleared} warning(s) for {member.mention}.", ephemeral=True)
+
+    # ---------- TIMEOUT ----------
+    @app_commands.command(name="timeout", description="Timeout a member (duration in minutes).")
+    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    async def timeout(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        duration: int,
+        reason: str = "No reason provided",
+    ):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        author = interaction.user
+
+        if member.top_role >= author.top_role and author.id != interaction.guild.owner_id:
+            return await interaction.response.send_message(
+                embed=create_error_embed("You cannot timeout someone with a higher or equal role."),
+                ephemeral=True,
+            )
+
         try:
-            await member.timeout(timedelta(minutes=duration), reason=f"{reason} | Timed out by {ctx.author}")
-            await self.bot.db.log_action(ctx.guild.id, "timeout", member.id, ctx.author.id, reason)
-            
+            await member.timeout(timedelta(minutes=duration), reason=f"{reason} | Timed out by {author} ({author.id})")
+            await self.bot.db.log_action(interaction.guild.id, "timeout", member.id, author.id, reason)
+
             embed = discord.Embed(
                 title="Member Timed Out",
-                description=f"{member.mention} has been timed out for {duration} minutes.\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason}",
-                color=discord.Color.orange()
+                description=(
+                    f"{member.mention} has been timed out for {duration} minutes.\n"
+                    f"**Moderator:** {author.mention}\n"
+                    f"**Reason:** {reason}"
+                ),
+                color=discord.Color.orange(),
             )
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
         except discord.Forbidden:
-            await ctx.send(embed=create_error_embed("I don't have permission to timeout this member."))
-    
-    @commands.command(name='untimeout')
-    @commands.has_permissions(moderate_members=True)
-    @commands.guild_only()
-    async def untimeout(self, ctx, member: discord.Member):
-        """Remove timeout from a member"""
+            await interaction.response.send_message(embed=create_error_embed("I don't have permission to timeout this member."), ephemeral=True)
+
+    # ---------- UNTIMEOUT ----------
+    @app_commands.command(name="untimeout", description="Remove timeout from a member.")
+    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    async def untimeout(self, interaction: discord.Interaction, member: discord.Member):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        author = interaction.user
+
         try:
-            await member.timeout(None)
-            await self.bot.db.log_action(ctx.guild.id, "untimeout", member.id, ctx.author.id, None)
-            
+            await member.timeout(None, reason=f"Timeout removed by {author} ({author.id})")
+            await self.bot.db.log_action(interaction.guild.id, "untimeout", member.id, author.id, None)
+
             embed = discord.Embed(
                 title="Timeout Removed",
-                description=f"Timeout removed from {member.mention}.\n**Moderator:** {ctx.author.mention}",
-                color=discord.Color.green()
+                description=f"Timeout removed from {member.mention}.\n**Moderator:** {author.mention}",
+                color=discord.Color.green(),
             )
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
         except discord.Forbidden:
-            await ctx.send(embed=create_error_embed("I don't have permission to remove timeout."))
+            await interaction.response.send_message(embed=create_error_embed("I don't have permission to remove timeout."), ephemeral=True)
+
+    # ---------- Error handling for this cog ----------
+    @kick.error
+    @ban.error
+    @unban.error
+    @warn.error
+    @warnings.error
+    @clearwarnings.error
+    @timeout.error
+    @untimeout.error
+    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            return await interaction.response.send_message("❌ You don’t have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Error: {error}", ephemeral=True)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
