@@ -291,3 +291,19 @@ class DatabaseManager:
                 async with self.db.cursor() as cursor:
                     await cursor.execute(query, params)
                     await self.db.commit()
+    async def update_server_setting(self, guild_id: int, key: str, value: Any) -> None:
+        """Small helper to store settings in server_config.config_data"""
+        existing = await self.get_server_config(guild_id)
+        data = (existing.get("config_data") if existing else None) or {}
+        data[key] = value
+        await self.update_server_config(guild_id, config_data=data)
+
+    async def get_server_settings(self, guild_id: int) -> Dict[str, Any]:
+        """Return server settings stored in server_config.config_data"""
+        existing = await self.get_server_config(guild_id)
+        data = (existing.get("config_data") if existing else None) or {}
+        # normalize keys used by the bot
+        return {
+            "log_channel": data.get("log_channel"),
+            "welcome_channel": data.get("welcome_channel"),
+        }
