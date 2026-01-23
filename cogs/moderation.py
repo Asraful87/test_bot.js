@@ -362,3 +362,14 @@ class Moderation(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
+    async def _post_modlog(self, guild: discord.Guild, embed: discord.Embed):
+        settings = await self.bot.db.get_server_settings(guild.id)
+        channel_id = settings.get("log_channel")
+        if not channel_id:
+            return
+        channel = guild.get_channel(channel_id)
+        if channel:
+            try:
+                await channel.send(embed=embed)
+            except Exception:
+                pass

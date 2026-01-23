@@ -242,4 +242,14 @@ async def setup(bot):
     await bot.add_cog(Utilities(bot))
     
     
-    
+# ---------- Backward-compatible helper functions ----------
+
+def create_success_embed(message: str) -> discord.Embed:
+    return EmbedFactory.success("Success", message)
+
+def create_error_embed(message: str) -> discord.Embed:
+    return EmbedFactory.error("Error", message)
+
+def create_mod_embed(action: str, moderator: discord.Member, target: discord.Member, reason: str | None = None) -> discord.Embed:
+    return EmbedFactory.moderation_action(action, moderator, target, reason=reason)
+

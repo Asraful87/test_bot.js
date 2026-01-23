@@ -171,3 +171,12 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+cogs = [
+    "cogs.moderation",
+    "cogs.channels",
+    "cogs.messages",
+    "cogs.roles",
+    "cogs.utilities",
+    "cogs.setup",
+    "cogs.welcome",
+]

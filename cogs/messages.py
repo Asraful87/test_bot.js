@@ -144,3 +144,53 @@ class Messages(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Messages(bot))
+    """
+Messages Cog (SLASH COMMANDS)
+Purge messages in bulk.
+"""
+import discord
+from discord.ext import commands
+from discord import app_commands
+from utils.embeds import create_success_embed, create_error_embed
+
+
+class Messages(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    mod = app_commands.Group(name="mod", description="Moderation commands")
+
+    @mod.command(name="purge", description="Delete messages in bulk (10/20/custom).")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.guild_only()
+    async def purge(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 500]):
+        # config limit
+        max_amount = int(self.bot.config["moderation"].get("max_purge_amount", 100))
+        if amount > max_amount:
+            return await interaction.response.send_message(
+                embed=create_error_embed(f"Max purge amount is {max_amount}."),
+                ephemeral=True
+            )
+
+        await interaction.response.defer(ephemeral=True)
+
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            return await interaction.followup.send(embed=create_error_embed("This command can only be used in a text channel."), ephemeral=True)
+
+        try:
+            deleted = await channel.purge(limit=amount)
+            await interaction.followup.send(embed=create_success_embed(f"Deleted **{len(deleted)}** messages."), ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send(embed=create_error_embed("I don't have permission to delete messages here."), ephemeral=True)
+
+    @purge.error
+    async def purge_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            return await interaction.response.send_message(embed=create_error_embed("You need Manage Messages permission."), ephemeral=True)
+        await interaction.response.send_message(embed=create_error_embed(str(error)), ephemeral=True)
+
+
+async def setup(bot):
+    await bot.add_cog(Messages(bot))
+
