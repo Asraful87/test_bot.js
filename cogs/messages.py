@@ -211,7 +211,7 @@ class ModGroup(app_commands.Group):
                     pass
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=create_error_embed("I don't have permission to delete messages here."),
+                embed=create_error_embed("I don't have permission to delete mesages here."),
                 ephemeral=True,
             )
         except discord.HTTPException:
