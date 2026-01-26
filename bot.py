@@ -227,4 +227,9 @@ cogs = [
     "cogs.utilities",
     "cogs.setup",
     "cogs.welcome",
+    'cogs.tickets',
+    'cogs.verification',
+    'cogs.tickets',
+
+
 ]
