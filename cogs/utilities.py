@@ -252,4 +252,17 @@ def create_error_embed(message: str) -> discord.Embed:
 
 def create_mod_embed(action: str, moderator: discord.Member, target: discord.Member, reason: str | None = None) -> discord.Embed:
     return EmbedFactory.moderation_action(action, moderator, target, reason=reason)
+from discord.ext import commands
+
+class Utilities(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.command(name="say")
+    @commands.has_permissions(administrator=True)
+    async def say(self, ctx, *, msg: str):
+        await ctx.send(msg)
+
+async def setup(bot):
+    await bot.add_cog(Utilities(bot))
 
