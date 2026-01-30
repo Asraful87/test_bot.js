@@ -106,6 +106,55 @@ bot.once('ready', async () => {
 });
 
 bot.on('interactionCreate', async interaction => {
+    // Handle button interactions
+    if (interaction.isButton()) {
+        const [action, type] = interaction.customId.split(':');
+        
+        if (action === 'verify' && type === 'button') {
+            // Handle verification button
+            const verifyCommand = bot.commands.get('post_verify');
+            if (verifyCommand && verifyCommand.handleVerifyButton) {
+                try {
+                    await verifyCommand.handleVerifyButton(interaction, bot);
+                } catch (error) {
+                    logger.error('Verify button error:', error);
+                }
+            }
+            return;
+        }
+        
+        // Handle ticket buttons
+        if (action === 'ticket') {
+            const ticketCommand = bot.commands.get('post_ticket_panel');
+            if (ticketCommand && ticketCommand.handleTicketButton) {
+                try {
+                    await ticketCommand.handleTicketButton(interaction, bot, type);
+                } catch (error) {
+                    logger.error('Ticket button error:', error);
+                }
+            }
+            return;
+        }
+    }
+    
+    // Handle select menu interactions
+    if (interaction.isStringSelectMenu()) {
+        const [action, type] = interaction.customId.split(':');
+        
+        if (action === 'ticket' && type === 'select') {
+            const ticketCommand = bot.commands.get('post_ticket_panel');
+            if (ticketCommand && ticketCommand.handleTicketSelect) {
+                try {
+                    await ticketCommand.handleTicketSelect(interaction, bot);
+                } catch (error) {
+                    logger.error('Ticket select error:', error);
+                }
+            }
+            return;
+        }
+    }
+    
+    // Handle slash commands
     if (!interaction.isChatInputCommand()) return;
 
     const command = bot.commands.get(interaction.commandName);
