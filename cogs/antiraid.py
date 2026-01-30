@@ -26,6 +26,10 @@ class AntiRaid(commands.Cog):
             return
 
         guild_id = member.guild.id
+
+        # Respect manual toggle (/raid off)
+        if self.raid_enabled.get(guild_id, True) is False:
+            return
         now = datetime.utcnow()
 
         # init cache
@@ -82,15 +86,21 @@ class AntiRaid(commands.Cog):
         )
 
     async def _send_alert(self, guild: discord.Guild, member: discord.Member, age: int):
-        settings = await self.bot.db.get_server_config(guild.id)
-        if not settings:
-            return
+        # Try config_data (setup /logchannel stores it there), then legacy mod_log_channel_id
+        settings = await self.bot.db.get_server_settings(guild.id)
+        log_channel_id = None
+        if isinstance(settings, dict):
+            log_channel_id = settings.get("log_channel") or settings.get("mod_log_channel_id")
 
-        log_channel_id = settings.get("mod_log_channel_id")
+        if log_channel_id is None:
+            legacy = await self.bot.db.get_server_config(guild.id)
+            if isinstance(legacy, dict):
+                log_channel_id = legacy.get("mod_log_channel_id")
+
         if not log_channel_id:
             return
 
-        channel = guild.get_channel(log_channel_id)
+        channel = guild.get_channel(int(log_channel_id))
         if not channel:
             return
 
@@ -141,12 +151,16 @@ class AntiRaid(commands.Cog):
 
     @raid.error
     async def raid_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.MissingPermissions):
-            return await interaction.response.send_message(
-                "❌ Admin only.",
-                ephemeral=True
-            )
-        await interaction.response.send_message(f"❌ Error: {error}", ephemeral=True)
+        try:
+            send = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+            if isinstance(error, app_commands.MissingPermissions):
+                return await send(
+                    "❌ Admin only.",
+                    ephemeral=True
+                )
+            await send(f"❌ Error: {error}", ephemeral=True)
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):

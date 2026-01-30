@@ -145,6 +145,8 @@ class AutoMod(commands.Cog):
 
         # If automod violation → apply action
         if violations and cfg_auto.get("enabled", False):
+            # Mark the message as handled by automod
+            message._automod_handled = True
             # Always delete the message first
             await self._delete_message(message)
 
@@ -310,9 +312,13 @@ class AutoMod(commands.Cog):
 
     @automod.error
     async def automod_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.MissingPermissions):
-            return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-        await interaction.response.send_message(f"❌ Error: {error}", ephemeral=True)
+        try:
+            send = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+            if isinstance(error, app_commands.MissingPermissions):
+                return await send("❌ Admin only.", ephemeral=True)
+            await send(f"❌ Error: {error}", ephemeral=True)
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):

@@ -1,0 +1,58 @@
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { successEmbed, errorEmbed } = require('../../utils/embeds');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('addrole')
+        .setDescription('Add a role to a member')
+        .addUserOption(option =>
+            option.setName('member')
+                .setDescription('Member to add role to')
+                .setRequired(true))
+        .addRoleOption(option =>
+            option.setName('role')
+                .setDescription('Role to add')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
+
+    async execute(interaction, bot) {
+        const member = interaction.options.getMember('member');
+        const role = interaction.options.getRole('role');
+
+        // Permission checks
+        if (role.position >= interaction.member.roles.highest.position && 
+            interaction.guild.ownerId !== interaction.user.id) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'You cannot assign a role higher than or equal to your highest role.')],
+                ephemeral: true
+            });
+        }
+
+        if (role.position >= interaction.guild.members.me.roles.highest.position) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'I cannot assign a role higher than or equal to my highest role.')],
+                ephemeral: true
+            });
+        }
+
+        if (member.roles.cache.has(role.id)) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', `${member} already has the ${role} role.`)],
+                ephemeral: true
+            });
+        }
+
+        try {
+            await member.roles.add(role, `Role added by ${interaction.user.tag}`);
+            await interaction.reply({
+                embeds: [successEmbed('Role Added', `Added ${role} to ${member}.`)]
+            });
+        } catch (error) {
+            console.error('Add role error:', error);
+            await interaction.reply({
+                embeds: [errorEmbed('Error', `Failed to add role: ${error.message}`)],
+                ephemeral: true
+            });
+        }
+    }
+};

@@ -187,6 +187,10 @@ class AntiSpam(commands.Cog):
             return
         if not isinstance(message.author, discord.Member):
             return
+        
+        # Check if automod already handled this
+        if hasattr(message, '_automod_handled') and message._automod_handled:
+            return
 
         member = message.author
 

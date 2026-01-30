@@ -19,29 +19,39 @@ class VerifyView(discord.ui.View):
         custom_id="verify:button"
     )
     async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            return await interaction.response.send_message("❌ Server only.", ephemeral=True)
-
-        role = discord.utils.get(interaction.guild.roles, name=self.role_name)
-        if not role:
-            return await interaction.response.send_message(
-                embed=create_error_embed(f"Role `{self.role_name}` not found. Create it first."),
-                ephemeral=True
-            )
-
-        member = interaction.user
-
-        if role in member.roles:
-            return await interaction.response.send_message("✅ You are already verified.", ephemeral=True)
-
         try:
-            await member.add_roles(role, reason="User verified via bot")
-            await interaction.response.send_message(embed=create_success_embed("You are verified!"), ephemeral=True)
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                embed=create_error_embed("I can't assign that role. Move my bot role above the Verified role."),
-                ephemeral=True
-            )
+            if not interaction.guild or not isinstance(interaction.user, discord.Member):
+                return await interaction.response.send_message("❌ Server only.", ephemeral=True)
+
+            role = discord.utils.get(interaction.guild.roles, name=self.role_name)
+            if not role:
+                return await interaction.response.send_message(
+                    embed=create_error_embed(f"Role `{self.role_name}` not found. Create it first."),
+                    ephemeral=True
+                )
+
+            member = interaction.user
+
+            if role in member.roles:
+                return await interaction.response.send_message("✅ You are already verified.", ephemeral=True)
+
+            try:
+                await member.add_roles(role, reason="User verified via bot")
+                await interaction.response.send_message(embed=create_success_embed("You are verified!"), ephemeral=True)
+            except discord.Forbidden:
+                await interaction.response.send_message(
+                    embed=create_error_embed("I can't assign that role. Move my bot role above the Verified role."),
+                    ephemeral=True
+                )
+        except Exception as e:
+            # Catch any unexpected errors to prevent hanging
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ An error occurred: {e}", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
+            except Exception:
+                pass
 
 
 class Verification(commands.Cog):
@@ -71,9 +81,13 @@ class Verification(commands.Cog):
 
     @post_verify.error
     async def post_verify_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        if isinstance(error, app_commands.MissingPermissions):
-            return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-        await interaction.response.send_message(f"❌ Error: {error}", ephemeral=True)
+        try:
+            send = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+            if isinstance(error, app_commands.MissingPermissions):
+                return await send("❌ Admin only.", ephemeral=True)
+            await send(f"❌ Error: {error}", ephemeral=True)
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):

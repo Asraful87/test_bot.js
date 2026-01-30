@@ -87,6 +87,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS server_config (
                     guild_id INTEGER PRIMARY KEY,
                     mod_log_channel_id INTEGER,
+                    welcome_channel_id INTEGER,
                     allowed_admin_role_ids TEXT,
                     muted_role_id INTEGER,
                     config_data TEXT
@@ -259,6 +260,7 @@ class DatabaseManager:
         self,
         guild_id: int,
         mod_log_channel_id: Optional[int] = None,
+        welcome_channel_id: Optional[int] = None,
         allowed_admin_role_ids: Optional[List[int]] = None,
         muted_role_id: Optional[int] = None,
         config_data: Optional[Dict[str, Any]] = None
@@ -272,9 +274,9 @@ class DatabaseManager:
             async with self.db.cursor() as cursor:
                 await cursor.execute("""
                     INSERT INTO server_config 
-                    (guild_id, mod_log_channel_id, allowed_admin_role_ids, muted_role_id, config_data)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (guild_id, mod_log_channel_id, admin_roles_json, muted_role_id, config_json))
+                    (guild_id, mod_log_channel_id, welcome_channel_id, allowed_admin_role_ids, muted_role_id, config_data)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (guild_id, mod_log_channel_id, welcome_channel_id, admin_roles_json, muted_role_id, config_json))
                 await self.db.commit()
         else:
             updates = []
@@ -283,6 +285,10 @@ class DatabaseManager:
             if mod_log_channel_id is not None:
                 updates.append("mod_log_channel_id = ?")
                 params.append(mod_log_channel_id)
+
+            if welcome_channel_id is not None:
+                updates.append("welcome_channel_id = ?")
+                params.append(welcome_channel_id)
                 
             if allowed_admin_role_ids is not None:
                 updates.append("allowed_admin_role_ids = ?")
@@ -320,6 +326,6 @@ class DatabaseManager:
         data = (existing.get("config_data") if existing else None) or {}
         # normalize keys used by the bot
         return {
-            "log_channel": data.get("log_channel"),
-            "welcome_channel": data.get("welcome_channel"),
+            "log_channel": data.get("log_channel") or (existing.get("mod_log_channel_id") if existing else None),
+            "welcome_channel": data.get("welcome_channel") or (existing.get("welcome_channel_id") if existing else None),
         }
