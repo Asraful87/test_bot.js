@@ -26,10 +26,12 @@
     "libsodium-wrappers": "^0.8.2",
     "opusscript": "^0.1.1",
     "play-dl": "^1.9.7",
-    "sodium-native": "^5.0.10",
     "sql.js": "^1.10.3",
     "tweetnacl": "^1.0.3",
     "winston": "^3.11.0"
+  },
+  "optionalDependencies": {
+    "sodium-native": "^5.0.10"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
