@@ -66,6 +66,49 @@ async function searchYouTube(query) {
     throw lastError || new Error('No results returned');
 }
 
+async function searchSoundCloud(query) {
+    const attempts = [
+        async () => withTimeout(play.search(query, { limit: 1, source: { soundcloud: 'tracks' } }), SEARCH_TIMEOUT_MS, 'SoundCloud search'),
+        async () => withTimeout(play.search(query, { limit: 3, source: { soundcloud: 'tracks' } }), SEARCH_TIMEOUT_MS, 'SoundCloud search (wider)')
+    ];
+
+    let lastError;
+    for (const attempt of attempts) {
+        try {
+            const results = await attempt();
+            if (Array.isArray(results) && results.length > 0) return results;
+        } catch (err) {
+            lastError = err;
+        }
+    }
+
+    throw lastError || new Error('No results returned');
+}
+
+function isYouTubeUrl(value) {
+    if (!value || typeof value !== 'string') return false;
+    return /(^|\.)youtube\.com\b|youtu\.be\b/i.test(value);
+}
+
+function isSoundCloudUrl(value) {
+    if (!value || typeof value !== 'string') return false;
+    return /(^|\.)soundcloud\.com\b/i.test(value);
+}
+
+function guessTitleFromUrl(url) {
+    try {
+        const u = new URL(url);
+        const path = (u.pathname || '/').replace(/\/+$/, '');
+        const last = path.split('/').filter(Boolean).pop();
+        if (last) {
+            return decodeURIComponent(last).replace(/[-_]+/g, ' ');
+        }
+        return u.hostname;
+    } catch {
+        return 'Unknown Track';
+    }
+}
+
 async function playSong(guild, queue) {
     if (queue.songs.length === 0) {
         queue.current = null;
@@ -81,37 +124,54 @@ async function playSong(guild, queue) {
             throw new Error(`Invalid song URL: ${song.url}`);
         }
 
-        // Primary: ytdl-core (fast/reliable when not blocked). If it fails (403/decipher/etc), fall back to play-dl.
+        // YouTube: try ytdl-core first, then fall back to play-dl.
+        // Non-YouTube (SoundCloud/direct audio): use play-dl directly (more reliable on Heroku).
         let resource;
-        try {
-            const ytdlOptions = {
-                filter: 'audioonly',
-                quality: 'highestaudio',
-                highWaterMark: 1 << 25,
-                liveBuffer: 1 << 25
-            };
+        if (song.source === 'youtube') {
+            try {
+                const ytdlOptions = {
+                    filter: 'audioonly',
+                    quality: 'highestaudio',
+                    highWaterMark: 1 << 25,
+                    liveBuffer: 1 << 25
+                };
 
-            if (queue.ytdlCookie && typeof queue.ytdlCookie === 'string' && queue.ytdlCookie.trim()) {
-                // Prefer Agent API (avoids deprecated "old cookie format" warning paths)
-                ytdlOptions.agent = ytdl.createAgent([queue.ytdlCookie.trim()]);
-            }
-
-            const audioStream = ytdl(song.url, ytdlOptions);
-            const probed = await demuxProbe(audioStream);
-            resource = createAudioResource(probed.stream, {
-                inputType: probed.type,
-                inlineVolume: true,
-                metadata: {
-                    title: song.title,
-                    url: song.url,
-                    duration: song.duration,
-                    thumbnail: song.thumbnail,
-                    requestedBy: song.requestedBy
+                if (queue.ytdlCookie && typeof queue.ytdlCookie === 'string' && queue.ytdlCookie.trim()) {
+                    // Prefer Agent API (avoids deprecated "old cookie format" warning paths)
+                    ytdlOptions.agent = ytdl.createAgent([queue.ytdlCookie.trim()]);
                 }
-            });
-        } catch (primaryErr) {
-            console.warn('[MUSIC] ytdl-core pipeline failed, falling back to play-dl:', primaryErr);
 
+                const audioStream = ytdl(song.url, ytdlOptions);
+                const probed = await demuxProbe(audioStream);
+                resource = createAudioResource(probed.stream, {
+                    inputType: probed.type,
+                    inlineVolume: true,
+                    metadata: {
+                        title: song.title,
+                        url: song.url,
+                        duration: song.duration,
+                        thumbnail: song.thumbnail,
+                        requestedBy: song.requestedBy,
+                        source: song.source
+                    }
+                });
+            } catch (primaryErr) {
+                console.warn('[MUSIC] ytdl-core pipeline failed, falling back to play-dl:', primaryErr);
+                const streamInfo = await play.stream(song.url);
+                resource = createAudioResource(streamInfo.stream, {
+                    inputType: streamInfo.type,
+                    inlineVolume: true,
+                    metadata: {
+                        title: song.title,
+                        url: song.url,
+                        duration: song.duration,
+                        thumbnail: song.thumbnail,
+                        requestedBy: song.requestedBy,
+                        source: song.source
+                    }
+                });
+            }
+        } else {
             const streamInfo = await play.stream(song.url);
             resource = createAudioResource(streamInfo.stream, {
                 inputType: streamInfo.type,
@@ -121,7 +181,8 @@ async function playSong(guild, queue) {
                     url: song.url,
                     duration: song.duration,
                     thumbnail: song.thumbnail,
-                    requestedBy: song.requestedBy
+                    requestedBy: song.requestedBy,
+                    source: song.source
                 }
             });
         }
@@ -182,10 +243,10 @@ function normalizeYoutubeUrl(video) {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('play')
-        .setDescription('Play music from YouTube')
+        .setDescription('Play music (YouTube/SoundCloud/Direct URL)')
         .addStringOption(option =>
             option.setName('query')
-                .setDescription('Song name or YouTube URL')
+                .setDescription('Song name or URL (YouTube/SoundCloud/MP3/Radio)')
                 .setRequired(true)),
 
     async execute(interaction, bot) {
@@ -223,11 +284,12 @@ module.exports = {
             stage = 'resolve_song';
             // Search for the song with timeout
             let song;
-            
-            // Check if it's a URL
-            const isURL = query.includes('youtube.com') || query.includes('youtu.be');
-            
-            if (isURL) {
+
+            const isUrl = isLikelyUrl(query);
+            const isYoutube = isYouTubeUrl(query);
+            const isSoundcloud = isSoundCloudUrl(query);
+
+            if (isUrl && isYoutube) {
                 try {
                     stage = 'video_info';
                     console.log('[SEARCH] Fetching video info for URL...');
@@ -246,7 +308,8 @@ module.exports = {
                         url: finalUrl,
                         duration: details.durationInSec,
                         thumbnail: details.thumbnails[0]?.url || 'https://via.placeholder.com/150',
-                        requestedBy: interaction.user
+                        requestedBy: interaction.user,
+                        source: 'youtube'
                     };
                 } catch (urlError) {
                     console.error('Error fetching URL info:', urlError.message);
@@ -254,41 +317,89 @@ module.exports = {
                         embeds: [errorEmbed('Error', `Failed to fetch video information. The video may be unavailable/restricted, or the request failed.\n\nDetails: ${urlError.message}`)]
                     });
                 }
+            } else if (isUrl && isSoundcloud) {
+                // For SoundCloud URLs, we can stream directly via play-dl.
+                song = {
+                    title: guessTitleFromUrl(query),
+                    url: query,
+                    duration: 0,
+                    thumbnail: 'https://via.placeholder.com/150',
+                    requestedBy: interaction.user,
+                    source: 'soundcloud'
+                };
+            } else if (isUrl) {
+                // Direct audio/radio URLs (mp3/aac/ogg/m3u8/etc) are often the smoothest on Heroku.
+                song = {
+                    title: guessTitleFromUrl(query),
+                    url: query,
+                    duration: 0,
+                    thumbnail: 'https://via.placeholder.com/150',
+                    requestedBy: interaction.user,
+                    source: 'direct'
+                };
             } else {
-                // Use YouTube search - simplified
+                // Search: try YouTube first, then fall back to SoundCloud for a smoother “free” experience on Heroku.
                 try {
                     stage = 'search';
                     console.log('[SEARCH] Searching YouTube for:', query);
-                    const yt_info = await searchYouTube(query);
-                    
-                    if (!yt_info || yt_info.length === 0) {
-                        return interaction.followUp({
-                            embeds: [errorEmbed('Error', 'No results found! Try using a YouTube URL instead.')]
-                        });
+                    let yt_info;
+                    try {
+                        yt_info = await searchYouTube(query);
+                    } catch (ytErr) {
+                        const ytMsg = ytErr && (ytErr.message || String(ytErr));
+                        const blocked = /sign in|confirm you\W*re not a bot|captcha|verify you are not a robot/i.test(ytMsg);
+                        if (!blocked) throw ytErr;
+                        console.warn('[SEARCH] YouTube search blocked; trying SoundCloud search');
+
+                        const sc = await searchSoundCloud(query);
+                        const item = sc && sc[0];
+                        const scUrl = item && (item.url || item.link);
+                        if (!isLikelyUrl(scUrl)) {
+                            throw ytErr;
+                        }
+
+                        song = {
+                            title: item.name || item.title || 'SoundCloud Track',
+                            url: scUrl,
+                            duration: item.durationInSec || item.duration || 0,
+                            thumbnail: item.thumbnails?.[0]?.url || item.thumbnail || 'https://via.placeholder.com/150',
+                            requestedBy: interaction.user,
+                            source: 'soundcloud'
+                        };
                     }
-                    
-                    const video = yt_info[0];
-                    console.log('[SEARCH] Found video:', video.title);
-                    
-                    const videoUrl = normalizeYoutubeUrl(video);
-                    if (!videoUrl) {
-                        console.error('Search returned video without URL:', video);
-                        return interaction.followUp({
-                            embeds: [errorEmbed('Error', 'Found a video but couldn\'t get its URL. Try a direct YouTube link.')]
-                        });
+
+                    if (song) {
+                        // already set by SoundCloud fallback
+                    } else {
+                        if (!yt_info || yt_info.length === 0) {
+                            return interaction.followUp({
+                                embeds: [errorEmbed('Error', 'No results found! Try a YouTube/SoundCloud URL instead.')]
+                            });
+                        }
+                        const video = yt_info[0];
+                        console.log('[SEARCH] Found video:', video.title);
+
+                        const videoUrl = normalizeYoutubeUrl(video);
+                        if (!videoUrl) {
+                            console.error('Search returned video without URL:', video);
+                            return interaction.followUp({
+                                embeds: [errorEmbed('Error', 'Found a video but couldn\'t get its URL. Try a direct YouTube link.')]
+                            });
+                        }
+
+                        song = {
+                            title: video.title || 'Unknown Title',
+                            url: videoUrl,
+                            duration: video.durationInSec || 0,
+                            thumbnail: video.thumbnails?.[0]?.url || 'https://via.placeholder.com/150',
+                            requestedBy: interaction.user,
+                            source: 'youtube'
+                        };
                     }
-                    
-                    song = {
-                        title: video.title || 'Unknown Title',
-                        url: videoUrl,
-                        duration: video.durationInSec || 0,
-                        thumbnail: video.thumbnails?.[0]?.url || 'https://via.placeholder.com/150',
-                        requestedBy: interaction.user
-                    };
                 } catch (searchError) {
                     console.error('YouTube search error:', searchError);
                     return interaction.followUp({
-                        embeds: [errorEmbed('Error', `YouTube search failed. Try a direct YouTube URL.\n\nDetails: ${searchError.message || searchError}`)]
+                        embeds: [errorEmbed('Error', `Search failed. Try a direct URL (SoundCloud, MP3, radio stream) or a different query.\n\nDetails: ${searchError.message || searchError}`)]
                     });
                 }
             }
@@ -406,7 +517,7 @@ module.exports = {
                     const msg = queue.lastError?.message || 'Unknown error while starting playback.';
                     const needsAuth = /sign in|confirm you\W*re not a bot|captcha|verify you are not a robot|confirm your age|private video|unavailable|premieres/i.test(msg);
                     const hint = needsAuth
-                        ? '\n\nYouTube is blocking this request (age/region/login/CAPTCHA). On Heroku, set `YOUTUBE_COOKIE` in Config Vars (from a logged-in browser) and try a different video URL.'
+                        ? '\n\nYouTube is blocking this request (age/region/login/CAPTCHA). Free & smoother options: try **SoundCloud** or a **direct MP3/radio URL**. If you still want YouTube on Heroku, set `YOUTUBE_COOKIE` in Config Vars.'
                         : '';
 
                     return interaction.followUp({
