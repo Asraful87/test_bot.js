@@ -144,16 +144,11 @@ bot.once('ready', async () => {
                         logger.error('Failed to fetch members:', err);
                     }
                     
-                    // Clear existing commands first to force update
-                    await guild.commands.set([]);
-                    logger.info('🗑️ Cleared existing guild commands');
-                    
-                    // Wait a moment for Discord to process
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
                     const commands = Array.from(bot.commands.values()).map(cmd => cmd.data);
                     await guild.commands.set(commands);
                     logger.info(`✅ Guild-synced ${commands.length} slash commands to guild ${guildId}`);
+                } else {
+                    logger.warn(`GUILD_ID is set (${guildId}) but the bot is not in that guild (or it is not cached yet).`);
                 }
             } else {
                 // Fetch members for all guilds
@@ -165,17 +160,11 @@ bot.once('ready', async () => {
                         logger.error(`Failed to fetch members for ${guild.name}:`, err);
                     }
                 }
-                
-                // Clear existing commands first to force update
-                await bot.application.commands.set([]);
-                logger.info('🗑️ Cleared existing global commands');
-                
-                // Wait a moment for Discord to process
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
+
                 const commands = Array.from(bot.commands.values()).map(cmd => cmd.data);
                 await bot.application.commands.set(commands);
                 logger.info(`✅ Globally synced ${commands.length} slash commands`);
+                logger.info('ℹ️ Global command updates can take up to ~1 hour to appear everywhere. For instant updates in one server, set GUILD_ID and restart the bot.');
             }
             bot.synced = true;
         } catch (error) {
