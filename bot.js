@@ -478,7 +478,7 @@ async function main() {
     const token = process.env.DISCORD_TOKEN;
     
     if (!token) {
-        throw new Error('DISCORD_TOKEN is not set. Add it to your .env file.');
+        throw new Error('DISCORD_TOKEN is not set. Set it as an environment variable (use a .env file locally, or Heroku Config Vars in production).');
     }
 
     try {
