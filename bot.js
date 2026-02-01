@@ -20,25 +20,45 @@ if (!process.env.FFMPEG_PATH && ffmpegStatic) {
     process.env.FFMPEG_PATH = ffmpegStatic;
 }
 
-// Load config
-const config = yaml.load(fs.readFileSync('config.yaml', 'utf8'));
+// Load config (optional). In production (e.g., Heroku), prefer env vars and avoid committing secrets.
+let config = {};
+try {
+    if (fs.existsSync('config.yaml')) {
+        config = yaml.load(fs.readFileSync('config.yaml', 'utf8')) || {};
+    } else {
+        config = {};
+    }
+} catch (err) {
+    // Keep the bot running even if config.yaml is malformed/missing.
+    config = {};
+}
 
 // Setup logging
 setupLogging();
 const logger = getLogger('modbot');
 
-// Configure play-dl tokens when provided
+// Configure play-dl tokens when provided.
+// Prefer environment variables (Heroku/GitHub secrets) over config.yaml.
 const youtubeConfig = config?.music?.youtube;
 if (youtubeConfig) {
     const youtubeTokens = {};
-    if (youtubeConfig.cookie) {
-        youtubeTokens.cookie = youtubeConfig.cookie;
+
+    const envCookie = process.env.YOUTUBE_COOKIE;
+    const envIdentityToken = process.env.YOUTUBE_IDENTITY_TOKEN;
+    const envSapisid = process.env.YOUTUBE_SAPISID;
+
+    const finalCookie = (typeof envCookie === 'string' && envCookie.trim()) ? envCookie.trim() : youtubeConfig.cookie;
+    const finalIdentityToken = (typeof envIdentityToken === 'string' && envIdentityToken.trim()) ? envIdentityToken.trim() : youtubeConfig.identity_token;
+    const finalSapisid = (typeof envSapisid === 'string' && envSapisid.trim()) ? envSapisid.trim() : youtubeConfig.sapisid_cookie;
+
+    if (finalCookie) {
+        youtubeTokens.cookie = finalCookie;
     }
-    if (youtubeConfig.identity_token) {
-        youtubeTokens.identity_token = youtubeConfig.identity_token;
+    if (finalIdentityToken) {
+        youtubeTokens.identity_token = finalIdentityToken;
     }
-    if (youtubeConfig.sapisid_cookie) {
-        youtubeTokens.sapisid = youtubeConfig.sapisid_cookie;
+    if (finalSapisid) {
+        youtubeTokens.sapisid = finalSapisid;
     }
 
     if (Object.keys(youtubeTokens).length > 0) {

@@ -4,6 +4,13 @@ node_modules/
 # Environment variables
 .env
 
+# Local config (may contain cookies/tokens)
+config.yaml
+
+# ytdl-core debug artifacts (can contain fetched player JS)
+*-player-script.js
+YTDL_DEBUG_PATH/
+
 # Database
 bot_data.db
 

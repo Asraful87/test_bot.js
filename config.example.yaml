@@ -1,0 +1,67 @@
+# Example configuration (SAFE TO COMMIT)
+# Copy to config.yaml for local development, or use environment variables on Heroku.
+
+bot:
+  command_prefix: "!"
+  status: "Moderating servers"
+  activity_type: "watching"
+
+music:
+  youtube:
+    # Use Heroku Config Vars instead of putting secrets here.
+    # YOUTUBE_COOKIE="..."
+    # YOUTUBE_IDENTITY_TOKEN="..."
+    # YOUTUBE_SAPISID="..."
+    cookie: ""
+    identity_token: ""
+    sapisid_cookie: ""
+
+moderation:
+  warn_threshold: 3
+  warn_threshold_action: "timeout"
+  warn_threshold_timeout_duration: 60
+  max_purge_amount: 100
+  destructive_command_cooldown: 10
+
+automod:
+  enabled: true
+  action_on_violation: "delete"
+  action_on_repeat: "timeout"
+  repeat_timeout_minutes: 10
+  max_mentions: 5
+  block_discord_invites: true
+  block_links: false
+  member_role_name: "Member"
+  blocked_words: []
+  exempt_role_ids: []
+  exempt_channel_ids: []
+
+antispam:
+  enabled: true
+  max_messages: 6
+  per_seconds: 8
+  duplicate_window_seconds: 12
+  max_duplicates: 3
+  spam_action: "timeout"
+  spam_timeout_minutes: 5
+
+antiraid:
+  enabled: true
+  join_threshold: 5
+  join_interval_seconds: 10
+  min_account_age_days: 3
+  auto_timeout_minutes: 10
+  slowmode_seconds: 15
+
+verification:
+  role_name: "Verified"
+  panel_title: "✅ Verification"
+  panel_description: "Click **Verify** to unlock the server."
+
+tickets:
+  # Fill these in if you use tickets.
+  enabled: true
+  category_name: "Tickets"
+  support_role_name: "Support"
+  panel_title: "🎫 Support Tickets"
+  panel_description: "Click a button to create a ticket."

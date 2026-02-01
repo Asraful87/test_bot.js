@@ -82,7 +82,7 @@ async function playSong(guild, queue) {
         }
 
         // Primary: ytdl-core (fast/reliable when not blocked). If it fails (403/decipher/etc), fall back to play-dl.
-        let audioStream;
+        let resource;
         try {
             const ytdlOptions = {
                 filter: 'audioonly',
@@ -92,33 +92,39 @@ async function playSong(guild, queue) {
             };
 
             if (queue.ytdlCookie && typeof queue.ytdlCookie === 'string' && queue.ytdlCookie.trim()) {
-                ytdlOptions.requestOptions = {
-                    headers: {
-                        cookie: queue.ytdlCookie.trim()
-                    }
-                };
+                // Prefer Agent API (avoids deprecated "old cookie format" warning paths)
+                ytdlOptions.agent = ytdl.createAgent([queue.ytdlCookie.trim()]);
             }
 
-            audioStream = ytdl(song.url, ytdlOptions);
+            const audioStream = ytdl(song.url, ytdlOptions);
+            const probed = await demuxProbe(audioStream);
+            resource = createAudioResource(probed.stream, {
+                inputType: probed.type,
+                inlineVolume: true,
+                metadata: {
+                    title: song.title,
+                    url: song.url,
+                    duration: song.duration,
+                    thumbnail: song.thumbnail,
+                    requestedBy: song.requestedBy
+                }
+            });
         } catch (primaryErr) {
-            console.warn('[MUSIC] ytdl-core stream failed, falling back to play-dl:', primaryErr);
-            const streamInfo = await play.stream(song.url);
-            audioStream = streamInfo.stream;
-        }
+            console.warn('[MUSIC] ytdl-core pipeline failed, falling back to play-dl:', primaryErr);
 
-        // Probe stream type so discord.js voice decodes it correctly
-        const probed = await demuxProbe(audioStream);
-        const resource = createAudioResource(probed.stream, {
-            inputType: probed.type,
-            inlineVolume: true,
-            metadata: {
-                title: song.title,
-                url: song.url,
-                duration: song.duration,
-                thumbnail: song.thumbnail,
-                requestedBy: song.requestedBy
-            }
-        });
+            const streamInfo = await play.stream(song.url);
+            resource = createAudioResource(streamInfo.stream, {
+                inputType: streamInfo.type,
+                inlineVolume: true,
+                metadata: {
+                    title: song.title,
+                    url: song.url,
+                    duration: song.duration,
+                    thumbnail: song.thumbnail,
+                    requestedBy: song.requestedBy
+                }
+            });
+        }
         
         // Set volume to 100% for testing
         if (resource.volume) {
@@ -186,6 +192,8 @@ module.exports = {
         // Defer reply immediately to avoid timeout
         await interaction.deferReply();
 
+        let stage = 'init';
+
         const query = interaction.options.getString('query');
         const member = interaction.member;
         const voiceChannel = member.voice.channel;
@@ -212,6 +220,7 @@ module.exports = {
         }
 
         try {
+            stage = 'resolve_song';
             // Search for the song with timeout
             let song;
             
@@ -220,6 +229,7 @@ module.exports = {
             
             if (isURL) {
                 try {
+                    stage = 'video_info';
                     console.log('[SEARCH] Fetching video info for URL...');
                     const info = await withTimeout(play.video_info(query), VIDEO_INFO_TIMEOUT_MS, 'Video info');
                     console.log('[SEARCH] Video info received');
@@ -247,6 +257,7 @@ module.exports = {
             } else {
                 // Use YouTube search - simplified
                 try {
+                    stage = 'search';
                     console.log('[SEARCH] Searching YouTube for:', query);
                     const yt_info = await searchYouTube(query);
                     
@@ -282,11 +293,19 @@ module.exports = {
                 }
             }
 
+            stage = 'get_queue';
             const queue = getQueue(interaction.guild.id);
             queue.lastError = null;
+            if (!queue.ytdlCookie) {
+                const cookieFromConfig = bot?.config?.music?.youtube?.cookie;
+                if (typeof cookieFromConfig === 'string' && cookieFromConfig.trim()) {
+                    queue.ytdlCookie = cookieFromConfig.trim();
+                }
+            }
 
             // Join voice channel if not already connected
             if (!queue.connection) {
+                stage = 'join_voice';
                 queue.connection = joinVoiceChannel({
                     channelId: voiceChannel.id,
                     guildId: interaction.guild.id,
@@ -304,6 +323,7 @@ module.exports = {
 
                 // Wait until the connection is ready before streaming audio
                 try {
+                    stage = 'voice_ready';
                     await entersState(queue.connection, VoiceConnectionStatus.Ready, 15_000);
                 } catch (error) {
                     console.error('Voice connection failed to become ready:', error);
@@ -375,6 +395,7 @@ module.exports = {
             if (!queue.player || queue.player.state.status === AudioPlayerStatus.Idle) {
                 queue.songs.push(song);
 
+                stage = 'start_playback';
                 const started = await playSong(interaction.guild, queue);
                 if (!started) {
                     const msg = queue.lastError?.message || 'Unknown error while starting playback.';
@@ -407,7 +428,7 @@ module.exports = {
         } catch (error) {
             console.error('Play command error:', error);
             await interaction.followUp({
-                embeds: [errorEmbed('Error', `An error occurred: ${error.message}`)]
+                embeds: [errorEmbed('Error', `An error occurred during **${stage}**: ${error.message}`)]
             });
         }
     }
