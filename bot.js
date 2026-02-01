@@ -11,6 +11,7 @@ const play = require('play-dl');
 const DatabaseManager = require('./database/db_manager');
 const { setupLogging, getLogger } = require('./utils/logging');
 const ffmpegStatic = require('ffmpeg-static');
+const crypto = require('crypto');
 
 dotenv.config();
 
@@ -150,7 +151,7 @@ async function syncSlashCommands({ guildId }) {
         .filter(Boolean);
 
     const scopeLabel = guildId ? `guild ${guildId}` : 'globally';
-    logger.info(`⏳ Syncing ${commands.length} slash commands ${guildId ? 'to' : ''} ${scopeLabel}...`);
+    const forceSync = ['1', 'true', 'yes', 'on'].includes(String(process.env.FORCE_SYNC_COMMANDS || '').toLowerCase());
 
     const rest = new REST({ version: '10' }).setToken(token);
     const applicationId = bot.user?.id;
@@ -161,6 +162,33 @@ async function syncSlashCommands({ guildId }) {
     const route = guildId
         ? Routes.applicationGuildCommands(applicationId, guildId)
         : Routes.applicationCommands(applicationId);
+
+    // Avoid Discord bulk-overwrite rate limits on every restart.
+    // If the current registered command *names* already match, skip overwrite unless forced.
+    let existingCommands = null;
+    try {
+        existingCommands = await withTimeout(rest.get(route), 20000, `Slash command list (${scopeLabel})`);
+    } catch (err) {
+        logger.warn(`Could not fetch existing commands for ${scopeLabel}; will attempt sync anyway.`, err);
+    }
+
+    if (!forceSync && Array.isArray(existingCommands) && existingCommands.length > 0) {
+        const existingNames = existingCommands.map(c => c?.name).filter(Boolean).sort();
+        const desiredNames = commands.map(c => c?.name).filter(Boolean).sort();
+
+        const sameNames = existingNames.length === desiredNames.length
+            && crypto.timingSafeEqual(
+                Buffer.from(JSON.stringify(existingNames)),
+                Buffer.from(JSON.stringify(desiredNames))
+            );
+
+        if (sameNames) {
+            logger.info(`✅ Slash commands already registered in ${scopeLabel} (${existingNames.length} commands); skipping overwrite. Set FORCE_SYNC_COMMANDS=1 to force a re-sync.`);
+            return;
+        }
+    }
+
+    logger.info(`⏳ Syncing ${commands.length} slash commands ${guildId ? 'to' : ''} ${scopeLabel}...`);
 
     const startedAt = Date.now();
     const slowWarn = setTimeout(() => {
