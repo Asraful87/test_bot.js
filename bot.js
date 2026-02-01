@@ -162,13 +162,18 @@ async function syncSlashCommands({ guildId }) {
         ? Routes.applicationGuildCommands(applicationId, guildId)
         : Routes.applicationCommands(applicationId);
 
-    await withTimeout(
-        rest.put(route, { body: commands }),
-        20000,
-        `Slash command sync (${scopeLabel})`
-    );
+    const startedAt = Date.now();
+    const slowWarn = setTimeout(() => {
+        logger.warn(`Slash command sync is taking longer than 20s (${scopeLabel}). This is usually Discord REST rate limiting; it should still complete.`);
+    }, 20000);
 
-    logger.info(`✅ Synced ${commands.length} slash commands ${guildId ? 'to guild ' + guildId : 'globally'}`);
+    try {
+        await rest.put(route, { body: commands });
+    } finally {
+        clearTimeout(slowWarn);
+    }
+
+    logger.info(`✅ Synced ${commands.length} slash commands ${guildId ? 'to guild ' + guildId : 'globally'} in ${Date.now() - startedAt}ms`);
 
     // Extra verification in logs: fetch registered command names from API.
     try {
