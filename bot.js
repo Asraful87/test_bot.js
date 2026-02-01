@@ -145,8 +145,10 @@ bot.once('ready', async () => {
                     }
                     
                     const commands = Array.from(bot.commands.values()).map(cmd => cmd.data?.toJSON?.() ?? cmd.data);
-                    await guild.commands.set(commands);
-                    logger.info(`✅ Guild-synced ${commands.length} slash commands to guild ${guildId}`);
+                    logger.info(`⏳ Syncing ${commands.length} slash commands to guild ${guildId}...`);
+                    guild.commands.set(commands)
+                        .then(() => logger.info(`✅ Guild-synced ${commands.length} slash commands to guild ${guildId}`))
+                        .catch((error) => logger.error('Failed to guild-sync commands:', error));
                 } else {
                     logger.warn(`GUILD_ID is set (${guildId}) but the bot is not in that guild (or it is not cached yet).`);
                 }
@@ -162,8 +164,13 @@ bot.once('ready', async () => {
                 }
 
                 const commands = Array.from(bot.commands.values()).map(cmd => cmd.data?.toJSON?.() ?? cmd.data);
-                await bot.application.commands.set(commands);
-                logger.info(`✅ Globally synced ${commands.length} slash commands`);
+                logger.info(`⏳ Syncing ${commands.length} slash commands globally...`);
+                bot.application.commands.set(commands)
+                    .then(() => {
+                        logger.info(`✅ Globally synced ${commands.length} slash commands`);
+                        logger.info('ℹ️ Global command updates can take up to ~1 hour to appear everywhere. For instant updates in one server, set GUILD_ID and restart the bot.');
+                    })
+                    .catch((error) => logger.error('Failed to global-sync commands:', error));
                 logger.info('ℹ️ Global command updates can take up to ~1 hour to appear everywhere. For instant updates in one server, set GUILD_ID and restart the bot.');
             }
             bot.synced = true;
