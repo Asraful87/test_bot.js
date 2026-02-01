@@ -4,7 +4,7 @@ const { successEmbed, errorEmbed } = require('../../utils/embeds');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('say')
-        .setDescription('Make the bot send a message')
+        .setDescription('Make the bot send a message anywhere')
         .addStringOption(option =>
             option.setName('message')
                 .setDescription('Message to send')
