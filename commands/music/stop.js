@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { getVoiceConnection } = require('@discordjs/voice');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { getQueue, destroyQueue } = require('../../utils/music_state');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,20 +8,15 @@ module.exports = {
         .setDescription('Stop music and clear the queue'),
 
     async execute(interaction, bot) {
-        const connection = getVoiceConnection(interaction.guild.id);
-
-        if (!connection) {
+        const queue = getQueue(interaction.guild.id);
+        if (!queue.connection) {
             return interaction.reply({
                 embeds: [errorEmbed('Error', 'I am not in a voice channel!')],
                 ephemeral: true
             });
         }
 
-        connection.destroy();
-
-        // Clear queue
-        const queues = require('./play').queues || new Map();
-        queues.delete(interaction.guild.id);
+        destroyQueue(interaction.guild.id);
 
         await interaction.reply({
             embeds: [successEmbed('Stopped', 'Music stopped and queue cleared.')]

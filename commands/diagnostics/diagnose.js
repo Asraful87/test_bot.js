@@ -1,5 +1,6 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
 const { successEmbed } = require('../../utils/embeds');
+const { getQueue } = require('../../utils/music_state');
 
 function boolIcon(ok) {
     return ok ? '✅' : '❌';
@@ -33,6 +34,41 @@ module.exports = {
 
         const roleOk = me.roles.highest.position > 1;
 
+        const memberVoiceChannel = interaction.member?.voice?.channel ?? null;
+        const botVoiceState = me.voice;
+
+        let voiceFieldValue = 'User is not in a voice/stage channel.';
+        if (memberVoiceChannel) {
+            const voicePerms = memberVoiceChannel.permissionsFor(me);
+            const voiceRequired = {
+                'Connect': voicePerms?.has(PermissionFlagsBits.Connect) ?? false,
+                'Speak': voicePerms?.has(PermissionFlagsBits.Speak) ?? false,
+                'UseVAD': voicePerms?.has(PermissionFlagsBits.UseVAD) ?? false,
+                'RequestToSpeak': voicePerms?.has(PermissionFlagsBits.RequestToSpeak) ?? false
+            };
+
+            const voiceMissing = Object.entries(voiceRequired)
+                .filter(([, has]) => !has)
+                .map(([name]) => name);
+
+            const isStage = memberVoiceChannel.type === ChannelType.GuildStageVoice;
+            const botInSame = botVoiceState?.channelId === memberVoiceChannel.id;
+
+            voiceFieldValue = [
+                `Channel: **${memberVoiceChannel.name}** (${isStage ? 'Stage' : 'Voice'})`,
+                `Bot in channel: ${boolIcon(!!botInSame)}`,
+                voiceMissing.length === 0 ? '✅ Voice perms OK in that channel.' : `❌ Missing: ${voiceMissing.join(', ')}`,
+                `Bot voice state: serverMute=${botVoiceState?.serverMute ? 'yes' : 'no'}, selfMute=${botVoiceState?.selfMute ? 'yes' : 'no'}, suppressed=${botVoiceState?.suppress ? 'yes' : 'no'}`
+            ].join('\n');
+        }
+
+        const queue = getQueue(interaction.guild.id);
+        const musicStatus = [
+            `Player: ${queue.player?.state?.status ?? 'none'}`,
+            `Connection: ${queue.connection?.state?.status ?? 'none'}`,
+            `Current: ${queue.current?.title ? `**${queue.current.title}**` : 'none'}`
+        ].join('\n');
+
         const embed = successEmbed('🩺 Bot Diagnose Report', 
             'This report helps you find why features might fail.')
             .setColor('#5865F2')
@@ -47,6 +83,16 @@ module.exports = {
                     value: missing.length === 0 
                         ? '✅ All permissions OK in this channel.'
                         : `❌ Missing: ${missing.join(', ')}`,
+                    inline: false
+                },
+                {
+                    name: 'Voice / Stage Checks',
+                    value: voiceFieldValue,
+                    inline: false
+                },
+                {
+                    name: 'Music State (This Server)',
+                    value: musicStatus,
                     inline: false
                 },
                 {

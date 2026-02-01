@@ -1,13 +1,24 @@
+// Load encryption library FIRST before discord.js voice
+require('./utils/sodium');
+
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { readdirSync } = require('fs');
 const { join } = require('path');
 const yaml = require('js-yaml');
 const fs = require('fs');
 const dotenv = require('dotenv');
+const play = require('play-dl');
 const DatabaseManager = require('./database/db_manager');
 const { setupLogging, getLogger } = require('./utils/logging');
+const ffmpegStatic = require('ffmpeg-static');
 
 dotenv.config();
+
+// Set FFmpeg path for audio (portable)
+// Allow user override via env var.
+if (!process.env.FFMPEG_PATH && ffmpegStatic) {
+    process.env.FFMPEG_PATH = ffmpegStatic;
+}
 
 // Load config
 const config = yaml.load(fs.readFileSync('config.yaml', 'utf8'));
@@ -15,6 +26,30 @@ const config = yaml.load(fs.readFileSync('config.yaml', 'utf8'));
 // Setup logging
 setupLogging();
 const logger = getLogger('modbot');
+
+// Configure play-dl tokens when provided
+const youtubeConfig = config?.music?.youtube;
+if (youtubeConfig) {
+    const youtubeTokens = {};
+    if (youtubeConfig.cookie) {
+        youtubeTokens.cookie = youtubeConfig.cookie;
+    }
+    if (youtubeConfig.identity_token) {
+        youtubeTokens.identity_token = youtubeConfig.identity_token;
+    }
+    if (youtubeConfig.sapisid_cookie) {
+        youtubeTokens.sapisid = youtubeConfig.sapisid_cookie;
+    }
+
+    if (Object.keys(youtubeTokens).length > 0) {
+        try {
+            play.setToken({ youtube: youtubeTokens });
+            logger.info('Configured play-dl with provided YouTube tokens');
+        } catch (error) {
+            logger.error('Failed to configure play-dl tokens:', error);
+        }
+    }
+}
 
 class ModBot extends Client {
     constructor() {
@@ -86,11 +121,43 @@ bot.once('ready', async () => {
             if (guildId) {
                 const guild = bot.guilds.cache.get(guildId);
                 if (guild) {
+                    // Fetch all guild members to populate cache for autocomplete
+                    try {
+                        await guild.members.fetch();
+                        logger.info(`✅ Fetched ${guild.members.cache.size} members for autocomplete`);
+                    } catch (err) {
+                        logger.error('Failed to fetch members:', err);
+                    }
+                    
+                    // Clear existing commands first to force update
+                    await guild.commands.set([]);
+                    logger.info('🗑️ Cleared existing guild commands');
+                    
+                    // Wait a moment for Discord to process
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
                     const commands = Array.from(bot.commands.values()).map(cmd => cmd.data);
                     await guild.commands.set(commands);
                     logger.info(`✅ Guild-synced ${commands.length} slash commands to guild ${guildId}`);
                 }
             } else {
+                // Fetch members for all guilds
+                for (const guild of bot.guilds.cache.values()) {
+                    try {
+                        await guild.members.fetch();
+                        logger.info(`✅ Fetched ${guild.members.cache.size} members for ${guild.name}`);
+                    } catch (err) {
+                        logger.error(`Failed to fetch members for ${guild.name}:`, err);
+                    }
+                }
+                
+                // Clear existing commands first to force update
+                await bot.application.commands.set([]);
+                logger.info('🗑️ Cleared existing global commands');
+                
+                // Wait a moment for Discord to process
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
                 const commands = Array.from(bot.commands.values()).map(cmd => cmd.data);
                 await bot.application.commands.set(commands);
                 logger.info(`✅ Globally synced ${commands.length} slash commands`);
@@ -106,6 +173,19 @@ bot.once('ready', async () => {
 });
 
 bot.on('interactionCreate', async interaction => {
+    // Handle autocomplete interactions
+    if (interaction.isAutocomplete()) {
+        const command = bot.commands.get(interaction.commandName);
+        if (!command || !command.autocomplete) return;
+        
+        try {
+            await command.autocomplete(interaction);
+        } catch (error) {
+            logger.error('Autocomplete error:', error);
+        }
+        return;
+    }
+    
     // Handle button interactions
     if (interaction.isButton()) {
         const [action, type] = interaction.customId.split(':');
@@ -226,13 +306,24 @@ bot.on('messageCreate', async (message) => {
             await message.delete();
             
             const action = automod.action_on_violation;
-            if (action === 'warn' || action === 'timeout') {
-                const reason = `AutoMod: ${violation}`;
-                
-                if (action === 'timeout') {
-                    await message.member.timeout(automod.repeat_timeout_minutes * 60 * 1000, reason);
-                    await message.channel.send(`⚠️ ${message.author} has been timed out for ${automod.repeat_timeout_minutes} minutes. Reason: ${violation}`).then(m => setTimeout(() => m.delete(), 5000));
+            const reason = `AutoMod: ${violation}`;
+
+            if (action === 'warn') {
+                try {
+                    bot.db.addWarning(message.guild.id, message.author.id, bot.user.id, reason);
+                    bot.db.logAction(message.guild.id, 'automod_warn', message.author.id, bot.user.id, reason);
+                } catch (dbErr) {
+                    logger.error('AutoMod warn DB error:', dbErr);
                 }
+
+                await message.channel
+                    .send(`⚠️ ${message.author} has been warned. Reason: ${violation}`)
+                    .then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
+            } else if (action === 'timeout') {
+                await message.member.timeout(automod.repeat_timeout_minutes * 60 * 1000, reason);
+                await message.channel
+                    .send(`⚠️ ${message.author} has been timed out for ${automod.repeat_timeout_minutes} minutes. Reason: ${violation}`)
+                    .then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
             }
             
             logger.info(`AutoMod: Deleted message from ${message.author.tag} - ${violation}`);
@@ -261,12 +352,13 @@ bot.on('messageCreate', async (message) => {
     }
     const userMessages = messageCache.get(userId);
     userMessages.push(now);
-    
+
     // Remove old messages
     const cutoff = now - (antispam.per_seconds * 1000);
-    messageCache.set(userId, userMessages.filter(t => t > cutoff));
-    
-    if (userMessages.length > antispam.max_messages) {
+    const recentMessages = userMessages.filter(t => t > cutoff);
+    messageCache.set(userId, recentMessages);
+
+    if (recentMessages.length > antispam.max_messages) {
         try {
             await message.delete();
             
@@ -289,12 +381,13 @@ bot.on('messageCreate', async (message) => {
     }
     const userDuplicates = duplicateCache.get(userId);
     userDuplicates.push({ content: message.content, time: now });
-    
+
     // Remove old duplicates
     const dupCutoff = now - (antispam.duplicate_window_seconds * 1000);
-    duplicateCache.set(userId, userDuplicates.filter(m => m.time > dupCutoff));
-    
-    const recentDuplicates = userDuplicates.filter(m => m.content === message.content);
+    const recentDuplicateWindow = userDuplicates.filter(m => m.time > dupCutoff);
+    duplicateCache.set(userId, recentDuplicateWindow);
+
+    const recentDuplicates = recentDuplicateWindow.filter(m => m.content === message.content);
     if (recentDuplicates.length >= antispam.max_duplicates) {
         try {
             await message.delete();

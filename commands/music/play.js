@@ -1,22 +1,69 @@
-const { SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
+const { SlashCommandBuilder, PermissionsBitField, ChannelType } = require('discord.js');
+const {
+    joinVoiceChannel,
+    createAudioPlayer,
+    createAudioResource,
+    demuxProbe,
+    NoSubscriberBehavior,
+    AudioPlayerStatus,
+    VoiceConnectionStatus,
+    entersState
+} = require('@discordjs/voice');
 const play = require('play-dl');
+const ytdl = require('@distube/ytdl-core');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { getQueue, destroyQueue } = require('../../utils/music_state');
 
-// Queue manager
-const queues = new Map();
+const SEARCH_TIMEOUT_MS = 20000;
+const VIDEO_INFO_TIMEOUT_MS = 20000;
 
-function getQueue(guildId) {
-    if (!queues.has(guildId)) {
-        queues.set(guildId, {
-            songs: [],
-            current: null,
-            player: null,
-            connection: null,
-            loopMode: false
-        });
+async function withTimeout(promise, ms, label = 'Operation') {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms))
+    ]);
+}
+
+async function searchYouTube(query) {
+    // play-dl search can fail due to network slowness, rate limits, or CAPTCHA.
+    // We'll retry once and try a fallback mode. If play-dl parsing breaks, fall back to @distube/ytsr.
+    const attempts = [
+        async () => withTimeout(play.search(query, { limit: 1 }), SEARCH_TIMEOUT_MS, 'YouTube search'),
+        async () => withTimeout(play.search(query, { limit: 1, source: { youtube: 'video' } }), SEARCH_TIMEOUT_MS, 'YouTube search (fallback)'),
+        async () => withTimeout(play.search(query, { limit: 3 }), SEARCH_TIMEOUT_MS, 'YouTube search (wider)')
+    ];
+
+    let lastError;
+    for (const attempt of attempts) {
+        try {
+            const results = await attempt();
+            if (Array.isArray(results) && results.length > 0) return results;
+        } catch (err) {
+            lastError = err;
+        }
     }
-    return queues.get(guildId);
+
+    // Final fallback: external search provider
+    try {
+        const ytsr = require('@distube/ytsr');
+        const res = await withTimeout(ytsr(query, { limit: 5 }), SEARCH_TIMEOUT_MS, 'YouTube search (ytsr)');
+        const items = Array.isArray(res) ? res : (res && res.items) ? res.items : [];
+        const videos = items.filter(i => i && (i.type === 'video' || i.url));
+        if (videos.length > 0) {
+            // normalize into play-dl-like objects the rest of the code can handle
+            return videos.map(v => ({
+                title: v.name || v.title,
+                url: v.url,
+                id: v.id,
+                durationInSec: typeof v.duration === 'number' ? v.duration : undefined,
+                thumbnails: v.thumbnail ? [{ url: v.thumbnail }] : (v.thumbnail?.url ? [{ url: v.thumbnail.url }] : [])
+            }));
+        }
+    } catch (fallbackErr) {
+        lastError = lastError || fallbackErr;
+    }
+
+    throw lastError || new Error('No results returned');
 }
 
 async function playSong(guild, queue) {
@@ -29,16 +76,51 @@ async function playSong(guild, queue) {
     queue.current = song;
 
     try {
-        const stream = await play.stream(song.url);
-        const resource = createAudioResource(stream.stream, {
-            inputType: stream.type
+        console.log(`[MUSIC] Starting playback for: ${song.title}`);
+        if (!isLikelyUrl(song.url)) {
+            throw new Error(`Invalid song URL: ${song.url}`);
+        }
+
+        // Use ytdl-core for streaming (more robust than play-dl stream)
+        const audioStream = ytdl(song.url, {
+            filter: 'audioonly',
+            quality: 'highestaudio',
+            highWaterMark: 1 << 25,
+            liveBuffer: 1 << 25
         });
 
-        queue.player.play(resource);
+        // Probe stream type so discord.js voice decodes it correctly
+        const probed = await demuxProbe(audioStream);
+        const resource = createAudioResource(probed.stream, {
+            inputType: probed.type,
+            inlineVolume: true,
+            metadata: {
+                title: song.title,
+                url: song.url,
+                duration: song.duration,
+                thumbnail: song.thumbnail,
+                requestedBy: song.requestedBy
+            }
+        });
+        
+        // Set volume to 100% for testing
+        if (resource.volume) {
+            resource.volume.setVolume(1.0);
+            console.log(`[MUSIC] Volume set to 100%`);
+        }
 
-        queue.player.on(AudioPlayerStatus.Idle, () => {
+        // attach resource so /volume can control it
+        queue.current = { ...song, resource };
+
+        console.log(`[MUSIC] Starting player, current state: ${queue.player.state.status}`);
+        queue.player.play(resource);
+        console.log(`[MUSIC] Player.play() called, new state: ${queue.player.state.status}`);
+
+        queue.player.once(AudioPlayerStatus.Idle, () => {
+            console.log(`[MUSIC] Player became idle, loopMode: ${queue.loopMode}`);
             if (queue.loopMode && queue.current) {
-                queue.songs.unshift(queue.current);
+                const { title, url, duration, thumbnail, requestedBy } = queue.current;
+                queue.songs.unshift({ title, url, duration, thumbnail, requestedBy });
             }
             playSong(guild, queue);
         });
@@ -46,6 +128,33 @@ async function playSong(guild, queue) {
         console.error('Error playing song:', error);
         playSong(guild, queue);
     }
+}
+
+function isLikelyUrl(value) {
+    if (!value || typeof value !== 'string') return false;
+    const v = value.trim();
+    if (!v) return false;
+    if (v === 'undefined' || v === 'null') return false;
+    if (!/^https?:\/\//i.test(v)) return false;
+    try {
+        // eslint-disable-next-line no-new
+        new URL(v);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function normalizeYoutubeUrl(video) {
+    const rawUrl = video && (video.url || video.link || video.video_url);
+    if (isLikelyUrl(rawUrl)) return rawUrl;
+
+    const id = video && (video.id || video.videoId || video.video_id);
+    if (id && typeof id === 'string') {
+        return `https://www.youtube.com/watch?v=${id}`;
+    }
+
+    return null;
 }
 
 module.exports = {
@@ -58,46 +167,103 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction, bot) {
+        // Defer reply immediately to avoid timeout
+        await interaction.deferReply();
+
         const query = interaction.options.getString('query');
         const member = interaction.member;
         const voiceChannel = member.voice.channel;
 
         if (!voiceChannel) {
-            return interaction.reply({
-                embeds: [errorEmbed('Error', 'You need to be in a voice channel to use this command!')],
-                ephemeral: true
+            return interaction.followUp({
+                embeds: [errorEmbed('Error', 'You need to be in a voice channel to use this command!')]
             });
         }
 
-        await interaction.deferReply();
+        // Ensure the bot can connect + speak
+        const me = interaction.guild.members.me || (await interaction.guild.members.fetchMe().catch(() => null));
+        if (!me) {
+            return interaction.followUp({
+                embeds: [errorEmbed('Error', 'Could not resolve bot member in this guild.')]
+            });
+        }
+
+        const perms = voiceChannel.permissionsFor(me);
+        if (!perms || !perms.has([PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak])) {
+            return interaction.followUp({
+                embeds: [errorEmbed('Missing Permissions', 'I need **Connect** and **Speak** permission in your voice channel.')]
+            });
+        }
 
         try {
-            // Search for the song
+            // Search for the song with timeout
             let song;
-            if (query.includes('youtube.com') || query.includes('youtu.be')) {
-                const info = await play.video_info(query);
-                song = {
-                    title: info.video_details.title,
-                    url: info.video_details.url,
-                    duration: info.video_details.durationInSec,
-                    thumbnail: info.video_details.thumbnails[0].url,
-                    requestedBy: interaction.user
-                };
-            } else {
-                const searchResults = await play.search(query, { limit: 1 });
-                if (searchResults.length === 0) {
+            
+            // Check if it's a URL
+            const isURL = query.includes('youtube.com') || query.includes('youtu.be');
+            
+            if (isURL) {
+                try {
+                    console.log('[SEARCH] Fetching video info for URL...');
+                    const info = await withTimeout(play.video_info(query), VIDEO_INFO_TIMEOUT_MS, 'Video info');
+                    console.log('[SEARCH] Video info received');
+
+                    const details = info.video_details;
+                    const videoUrl = normalizeYoutubeUrl({ url: details.url, id: details.id });
+                    const finalUrl = videoUrl || (isLikelyUrl(query) ? query : null);
+                    if (!finalUrl) {
+                        throw new Error('Could not determine a valid YouTube URL for this video');
+                    }
+
+                    song = {
+                        title: details.title,
+                        url: finalUrl,
+                        duration: details.durationInSec,
+                        thumbnail: details.thumbnails[0]?.url || 'https://via.placeholder.com/150',
+                        requestedBy: interaction.user
+                    };
+                } catch (urlError) {
+                    console.error('Error fetching URL info:', urlError.message);
                     return interaction.followUp({
-                        embeds: [errorEmbed('Error', 'No results found!')]
+                        embeds: [errorEmbed('Error', `Failed to fetch video information. The video may be unavailable/restricted, or the request failed.\n\nDetails: ${urlError.message}`)]
                     });
                 }
-                const video = searchResults[0];
-                song = {
-                    title: video.title,
-                    url: video.url,
-                    duration: video.durationInSec,
-                    thumbnail: video.thumbnails[0].url,
-                    requestedBy: interaction.user
-                };
+            } else {
+                // Use YouTube search - simplified
+                try {
+                    console.log('[SEARCH] Searching YouTube for:', query);
+                    const yt_info = await searchYouTube(query);
+                    
+                    if (!yt_info || yt_info.length === 0) {
+                        return interaction.followUp({
+                            embeds: [errorEmbed('Error', 'No results found! Try using a YouTube URL instead.')]
+                        });
+                    }
+                    
+                    const video = yt_info[0];
+                    console.log('[SEARCH] Found video:', video.title);
+                    
+                    const videoUrl = normalizeYoutubeUrl(video);
+                    if (!videoUrl) {
+                        console.error('Search returned video without URL:', video);
+                        return interaction.followUp({
+                            embeds: [errorEmbed('Error', 'Found a video but couldn\'t get its URL. Try a direct YouTube link.')]
+                        });
+                    }
+                    
+                    song = {
+                        title: video.title || 'Unknown Title',
+                        url: videoUrl,
+                        duration: video.durationInSec || 0,
+                        thumbnail: video.thumbnails?.[0]?.url || 'https://via.placeholder.com/150',
+                        requestedBy: interaction.user
+                    };
+                } catch (searchError) {
+                    console.error('YouTube search error:', searchError);
+                    return interaction.followUp({
+                        embeds: [errorEmbed('Error', `YouTube search failed. Try a direct YouTube URL.\n\nDetails: ${searchError.message || searchError}`)]
+                    });
+                }
             }
 
             const queue = getQueue(interaction.guild.id);
@@ -108,10 +274,59 @@ module.exports = {
                     channelId: voiceChannel.id,
                     guildId: interaction.guild.id,
                     adapterCreator: interaction.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false,
                 });
 
-                queue.player = createAudioPlayer();
+                queue.player = createAudioPlayer({
+                    behaviors: {
+                        noSubscriber: NoSubscriberBehavior.Play
+                    }
+                });
                 queue.connection.subscribe(queue.player);
+
+                // Wait until the connection is ready before streaming audio
+                try {
+                    await entersState(queue.connection, VoiceConnectionStatus.Ready, 15_000);
+                } catch (error) {
+                    console.error('Voice connection failed to become ready:', error);
+                    destroyQueue(interaction.guild.id);
+                    return interaction.followUp({
+                        embeds: [errorEmbed('Error', 'Failed to join the voice channel. Please try again.')]
+                    });
+                }
+
+                // If this is a Stage channel, the bot may be suppressed and cannot output audio.
+                // Attempt to request-to-speak / unsuppress.
+                try {
+                    const meAfterJoin = interaction.guild.members.me || (await interaction.guild.members.fetchMe().catch(() => null));
+                    const vs = meAfterJoin && meAfterJoin.voice;
+                    if (vs && voiceChannel.type === ChannelType.GuildStageVoice) {
+                        // These calls require appropriate permissions in the Stage.
+                        await vs.setRequestToSpeak(true).catch(() => {});
+                        await vs.setSuppressed(false).catch(() => {});
+                    }
+
+                    if (vs && (vs.serverMute || vs.suppress)) {
+                        const reasons = [
+                            vs.serverMute ? 'server-muted' : null,
+                            vs.suppress ? 'suppressed (Stage)' : null
+                        ].filter(Boolean).join(', ');
+
+                        await interaction.followUp({
+                            embeds: [errorEmbed('Voice Output Blocked', `I joined the channel but I am **${reasons}**.\n\nUnmute/allow me to speak in that channel and try again.`)],
+                            ephemeral: true
+                        }).catch(() => {});
+                    }
+                } catch (stageErr) {
+                    console.error('Stage/voice state check failed:', stageErr);
+                }
+
+                // Attach a single error listener to the player
+                queue.player.on('error', error => {
+                    console.error('Audio player error:', error);
+                    playSong(interaction.guild, queue);
+                });
 
                 queue.connection.on(VoiceConnectionStatus.Disconnected, async () => {
                     try {
@@ -120,8 +335,7 @@ module.exports = {
                             entersState(queue.connection, VoiceConnectionStatus.Connecting, 5_000),
                         ]);
                     } catch (error) {
-                        queue.connection.destroy();
-                        queues.delete(interaction.guild.id);
+                        destroyQueue(interaction.guild.id);
                     }
                 });
             }

@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { getVoiceConnection } = require('@discordjs/voice');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { getQueue } = require('../../utils/music_state');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,27 +8,16 @@ module.exports = {
         .setDescription('Skip the current song'),
 
     async execute(interaction, bot) {
-        const connection = getVoiceConnection(interaction.guild.id);
-
-        if (!connection) {
-            return interaction.reply({
-                embeds: [errorEmbed('Error', 'I am not in a voice channel!')],
-                ephemeral: true
-            });
-        }
-
-        const play = require('./play');
-        const queues = new Map();
-        const queue = queues.get(interaction.guild.id);
-
-        if (!queue || !queue.player) {
+        const queue = getQueue(interaction.guild.id);
+        if (!queue.connection || !queue.player) {
             return interaction.reply({
                 embeds: [errorEmbed('Error', 'Nothing is playing!')],
                 ephemeral: true
             });
         }
 
-        queue.player.stop();
+        // stopping the player will trigger the Idle handler in play.js and move to the next track
+        queue.player.stop(true);
 
         await interaction.reply({
             embeds: [successEmbed('Skipped', 'Skipped to the next song.')]

@@ -26,32 +26,24 @@ module.exports = {
                 });
             }
 
-            // Get the most recent warning (last in array)
-            const lastWarning = warnings[warnings.length - 1];
+            // getWarnings() orders timestamp DESC, so most recent is first
+            const lastWarning = warnings[0];
 
-            // Remove the warning from database
-            // Note: This requires a removeWarning method in db_manager
-            // For now, we'll use clearWarnings and re-add the others
             try {
-                bot.db.clearWarnings(interaction.guild.id, member.id);
-
-                // Re-add all warnings except the last one
-                for (let i = 0; i < warnings.length - 1; i++) {
-                    const w = warnings[i];
-                    bot.db.addWarning(
-                        interaction.guild.id,
-                        member.id,
-                        w.moderator_id,
-                        w.reason || 'No reason provided'
-                    );
+                const removed = bot.db.removeWarningById(interaction.guild.id, lastWarning.id);
+                if (!removed) {
+                    throw new Error('Warning was not removed (already inactive?)');
                 }
 
-                const embed = successEmbed('Warning Removed', 
+                const remaining = bot.db.getWarningCount(interaction.guild.id, member.id);
+
+                const embed = successEmbed(
+                    'Warning Removed',
                     `Removed the most recent warning from ${member}\n` +
                     `**Warning Reason:** ${lastWarning.reason || 'No reason provided'}\n` +
-                    `**Issued By:** <@${lastWarning.moderator_id}>\n` +
-                    `**Remaining Warnings:** ${warnings.length - 1}`)
-                    .setColor('Green');
+                    `**Issued By:** <@${lastWarning.mod_id}>\n` +
+                    `**Remaining Warnings:** ${remaining}`
+                ).setColor('Green');
 
                 await interaction.editReply({ embeds: [embed] });
             } catch (dbError) {

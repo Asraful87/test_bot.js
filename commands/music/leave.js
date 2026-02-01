@@ -1,20 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 
-// Import queue from play.js
-const queues = new Map();
-
-function getQueue(guildId) {
-    if (!queues.has(guildId)) {
-        queues.set(guildId, {
-            songs: [],
-            current: null,
-            player: null,
-            connection: null,
-            loopMode: false
-        });
-    }
-    return queues.get(guildId);
-}
+const { getQueue, destroyQueue } = require('../../utils/music_state');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -33,8 +19,7 @@ module.exports = {
 
         queue.songs = [];
         queue.current = null;
-        queue.connection.destroy();
-        queues.delete(interaction.guild.id);
+        destroyQueue(interaction.guild.id);
 
         await interaction.reply({
             content: '👋 Disconnected from voice channel!'

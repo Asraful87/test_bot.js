@@ -1,21 +1,8 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { AudioPlayerStatus } = require('@discordjs/voice');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
 
-// Import queue from play.js
-const queues = new Map();
-
-function getQueue(guildId) {
-    if (!queues.has(guildId)) {
-        queues.set(guildId, {
-            songs: [],
-            current: null,
-            player: null,
-            connection: null,
-            loopMode: false
-        });
-    }
-    return queues.get(guildId);
-}
+const { getQueue } = require('../../utils/music_state');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -32,14 +19,14 @@ module.exports = {
         const queue = getQueue(interaction.guild.id);
         const volume = interaction.options.getInteger('level');
 
-        if (!queue.connection) {
+        if (!queue.connection || !queue.player) {
             return interaction.reply({
                 embeds: [errorEmbed('Error', 'Not connected to a voice channel!')],
                 ephemeral: true
             });
         }
 
-        if (!queue.current) {
+        if (queue.player.state.status === AudioPlayerStatus.Idle) {
             return interaction.reply({
                 embeds: [errorEmbed('Error', 'Nothing is playing!')],
                 ephemeral: true
@@ -50,10 +37,15 @@ module.exports = {
             // Convert percentage to decimal for audio resource
             const volumeDecimal = volume / 100;
             
-            // Set volume on the audio resource if available
-            if (queue.current.resource && queue.current.resource.volume) {
-                queue.current.resource.volume.setVolume(volumeDecimal);
+            const resource = queue.player.state.resource;
+            if (!resource || !resource.volume) {
+                return interaction.reply({
+                    embeds: [errorEmbed('Error', 'Volume control is not available for the current stream.')],
+                    ephemeral: true
+                });
             }
+
+            resource.volume.setVolume(volumeDecimal);
 
             await interaction.reply({
                 embeds: [successEmbed('Volume Changed', `🔊 Volume set to **${volume}%**`)]

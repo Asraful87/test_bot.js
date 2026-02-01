@@ -16,16 +16,19 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 
     async execute(interaction, bot) {
-        const target = interaction.options.getUser('member');
+        const user = interaction.options.getUser('member');
         const reason = interaction.options.getString('reason');
-        const member = interaction.guild.members.cache.get(target.id);
-
+        
+        const member = await interaction.guild.members.fetch(user.id);
+        
         if (!member) {
             return interaction.reply({ 
                 embeds: [errorEmbed('Error', 'Member not found in this server.')], 
                 ephemeral: true 
             });
         }
+        
+        const target = member.user;
 
         try {
             // Add warning to database

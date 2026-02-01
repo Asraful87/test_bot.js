@@ -1,21 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
 
-// Import queue from play.js
-const queues = new Map();
-
-function getQueue(guildId) {
-    if (!queues.has(guildId)) {
-        queues.set(guildId, {
-            songs: [],
-            current: null,
-            player: null,
-            connection: null,
-            loopMode: false
-        });
-    }
-    return queues.get(guildId);
-}
+const { getQueue } = require('../../utils/music_state');
 
 module.exports = {
     data: new SlashCommandBuilder()

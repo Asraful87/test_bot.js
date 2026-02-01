@@ -12,7 +12,8 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 
     async execute(interaction, bot) {
-        const member = interaction.options.getMember('member');
+        const user = interaction.options.getUser('member');
+        const member = await interaction.guild.members.fetch(user.id);
 
         await interaction.deferReply({ ephemeral: true });
 

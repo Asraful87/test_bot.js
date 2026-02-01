@@ -192,8 +192,9 @@ module.exports = {
 
             // Check for existing open ticket
             if (ticketConfig.one_ticket_per_category_per_user) {
-                const existingTicket = category.children.cache.find(ch => {
+                const existingTicket = guild.channels.cache.find(ch => {
                     if (ch.type !== ChannelType.GuildText) return false;
+                    if (ch.parentId !== category.id) return false;
                     const meta = parseTopic(ch.topic);
                     return meta.ticket_opener === member.id.toString() &&
                            meta.ticket_type === ticketType &&

@@ -147,6 +147,15 @@ class DatabaseManager {
         return this.db.getRowsModified();
     }
 
+    removeWarningById(guildId, warningId) {
+        this.db.run(`
+            UPDATE warnings SET active = 0
+            WHERE guild_id = ? AND id = ? AND active = 1
+        `, [guildId, warningId]);
+        this._save();
+        return this.db.getRowsModified();
+    }
+
     // ==================== MOD ACTIONS ====================
 
     logAction(guildId, actionType, targetId, modId, reason = null, metadata = null, duration = null) {

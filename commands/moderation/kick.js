@@ -16,16 +16,17 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
 
     async execute(interaction, bot) {
-        const target = interaction.options.getUser('member');
+        const member = interaction.options.getMember('member');
         const reason = interaction.options.getString('reason') || 'No reason provided';
-        const member = interaction.guild.members.cache.get(target.id);
-
+        
         if (!member) {
             return interaction.reply({ 
                 embeds: [errorEmbed('Error', 'Member not found in this server.')], 
                 ephemeral: true 
             });
         }
+        
+        const target = member.user;
 
         if (!member.kickable) {
             return interaction.reply({ 

@@ -134,7 +134,7 @@ module.exports = {
             // Handle if response already sent
             const errorMessage = errorEmbed('Error', `An error occurred: ${error.message}`);
             if (interaction.replied || interaction.deferred) {
-                await interaction.followup({
+                await interaction.followUp({
                     embeds: [errorMessage],
                     ephemeral: true
                 }).catch(() => {});
