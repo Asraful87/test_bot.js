@@ -297,9 +297,14 @@ module.exports = {
             const queue = getQueue(interaction.guild.id);
             queue.lastError = null;
             if (!queue.ytdlCookie) {
-                const cookieFromConfig = bot?.config?.music?.youtube?.cookie;
-                if (typeof cookieFromConfig === 'string' && cookieFromConfig.trim()) {
-                    queue.ytdlCookie = cookieFromConfig.trim();
+                const cookieFromEnv = process.env.YOUTUBE_COOKIE;
+                if (typeof cookieFromEnv === 'string' && cookieFromEnv.trim()) {
+                    queue.ytdlCookie = cookieFromEnv.trim();
+                } else {
+                    const cookieFromConfig = bot?.config?.music?.youtube?.cookie;
+                    if (typeof cookieFromConfig === 'string' && cookieFromConfig.trim()) {
+                        queue.ytdlCookie = cookieFromConfig.trim();
+                    }
                 }
             }
 
@@ -399,8 +404,9 @@ module.exports = {
                 const started = await playSong(interaction.guild, queue);
                 if (!started) {
                     const msg = queue.lastError?.message || 'Unknown error while starting playback.';
-                    const hint = /sign in|confirm your age|private video|unavailable|premieres/i.test(msg)
-                        ? '\n\nThis can be caused by **YouTube restrictions** (age/region/login). Try another video URL.'
+                    const needsAuth = /sign in|confirm you\W*re not a bot|captcha|verify you are not a robot|confirm your age|private video|unavailable|premieres/i.test(msg);
+                    const hint = needsAuth
+                        ? '\n\nYouTube is blocking this request (age/region/login/CAPTCHA). On Heroku, set `YOUTUBE_COOKIE` in Config Vars (from a logged-in browser) and try a different video URL.'
                         : '';
 
                     return interaction.followUp({

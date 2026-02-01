@@ -39,8 +39,9 @@ const logger = getLogger('modbot');
 
 // Configure play-dl tokens when provided.
 // Prefer environment variables (Heroku/GitHub secrets) over config.yaml.
-const youtubeConfig = config?.music?.youtube;
-if (youtubeConfig) {
+// IMPORTANT: This must work even when config.yaml is missing (e.g. Heroku).
+const youtubeConfig = config?.music?.youtube || {};
+{
     const youtubeTokens = {};
 
     const envCookie = process.env.YOUTUBE_COOKIE;
@@ -51,15 +52,9 @@ if (youtubeConfig) {
     const finalIdentityToken = (typeof envIdentityToken === 'string' && envIdentityToken.trim()) ? envIdentityToken.trim() : youtubeConfig.identity_token;
     const finalSapisid = (typeof envSapisid === 'string' && envSapisid.trim()) ? envSapisid.trim() : youtubeConfig.sapisid_cookie;
 
-    if (finalCookie) {
-        youtubeTokens.cookie = finalCookie;
-    }
-    if (finalIdentityToken) {
-        youtubeTokens.identity_token = finalIdentityToken;
-    }
-    if (finalSapisid) {
-        youtubeTokens.sapisid = finalSapisid;
-    }
+    if (finalCookie) youtubeTokens.cookie = finalCookie;
+    if (finalIdentityToken) youtubeTokens.identity_token = finalIdentityToken;
+    if (finalSapisid) youtubeTokens.sapisid = finalSapisid;
 
     if (Object.keys(youtubeTokens).length > 0) {
         try {
