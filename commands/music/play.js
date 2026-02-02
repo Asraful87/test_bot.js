@@ -13,6 +13,8 @@ const play = require('play-dl');
 const ytdl = require('@distube/ytdl-core');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
 const { getQueue, destroyQueue } = require('../../utils/music_state');
+const { safeDefer, safeReply, safeError } = require('../../utils/respond');
+const { requireGuild } = require('../../utils/permissions');
 
 const SEARCH_TIMEOUT_MS = 20000;
 const VIDEO_INFO_TIMEOUT_MS = 20000;
@@ -265,8 +267,10 @@ module.exports = {
                 .setRequired(false)),
 
     async execute(interaction, bot) {
+        if (!requireGuild(interaction)) return;
+
         // Defer reply immediately to avoid timeout
-        await interaction.deferReply();
+        await safeDefer(interaction);
 
         let stage = 'init';
 
@@ -275,26 +279,29 @@ module.exports = {
             interaction.options.getString('source') || process.env.MUSIC_DEFAULT_SOURCE || 'auto'
         );
         const member = interaction.member;
-        const voiceChannel = member.voice.channel;
+        const voiceChannel = member?.voice?.channel;
 
         if (!voiceChannel) {
-            return interaction.followUp({
-                embeds: [errorEmbed('Error', 'You need to be in a voice channel to use this command!')]
+            return safeReply(interaction, {
+                embeds: [errorEmbed('Error', 'You need to be in a voice channel to use this command!')],
+                ephemeral: true
             });
         }
 
         // Ensure the bot can connect + speak
         const me = interaction.guild.members.me || (await interaction.guild.members.fetchMe().catch(() => null));
         if (!me) {
-            return interaction.followUp({
-                embeds: [errorEmbed('Error', 'Could not resolve bot member in this guild.')]
+            return safeReply(interaction, {
+                embeds: [errorEmbed('Error', 'Could not resolve bot member in this guild.')],
+                ephemeral: true
             });
         }
 
         const perms = voiceChannel.permissionsFor(me);
         if (!perms || !perms.has([PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak])) {
-            return interaction.followUp({
-                embeds: [errorEmbed('Missing Permissions', 'I need **Connect** and **Speak** permission in your voice channel.')]
+            return safeReply(interaction, {
+                embeds: [errorEmbed('Missing Permissions', 'I need **Connect** and **Speak** permission in your voice channel.')],
+                ephemeral: true
             });
         }
 
@@ -655,9 +662,7 @@ module.exports = {
             }
         } catch (error) {
             console.error('Play command error:', error);
-            await interaction.followUp({
-                embeds: [errorEmbed('Error', `An error occurred during **${stage}**: ${error.message}`)]
-            });
+            await safeError(interaction, error, `An error occurred during **${stage}**`);
         }
     }
 };

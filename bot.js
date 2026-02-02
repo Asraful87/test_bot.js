@@ -392,9 +392,23 @@ bot.on('messageCreate', async (message) => {
 // Anti-Raid: Join monitoring
 const joinCache = new Map(); // guildId -> array of join timestamps
 
+const DEFAULT_ANTIRAID = {
+    enabled: false,
+    join_threshold: 5,
+    join_interval_seconds: 10,
+    min_account_age_days: 7,
+    auto_timeout_minutes: 10
+};
+
 bot.on('guildMemberAdd', async (member) => {
-    const antiraid = bot.config?.antiraid;
-    if (!antiraid || !antiraid.enabled) return;
+    const antiraidFromConfig = (bot.config && typeof bot.config.antiraid === 'object') ? bot.config.antiraid : {};
+    const antiraidFromSettings = bot.settings?.getModule?.(member.guild.id, 'antiraid', {}) || {};
+    const antiraid = {
+        ...DEFAULT_ANTIRAID,
+        ...antiraidFromConfig,
+        ...antiraidFromSettings
+    };
+    if (!antiraid.enabled) return;
     
     const guildId = member.guild.id;
     const now = Date.now();

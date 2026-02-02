@@ -15,6 +15,20 @@ class SettingsService {
         this.db = dbManager;
     }
 
+    _normalizeConfigData(config) {
+        if (!config || !config.config_data) return {};
+        const raw = config.config_data;
+        if (raw && typeof raw === 'object') return raw;
+        if (typeof raw === 'string') {
+            try {
+                return JSON.parse(raw);
+            } catch {
+                return {};
+            }
+        }
+        return {};
+    }
+
     /**
      * Get a setting value for a guild
      * @param {string} guildId
@@ -26,8 +40,8 @@ class SettingsService {
         try {
             const config = this.db.getServerConfig(guildId);
             if (!config || !config.config_data) return defaultValue;
-            
-            const data = JSON.parse(config.config_data);
+
+            const data = this._normalizeConfigData(config);
             return data[key] !== undefined ? data[key] : defaultValue;
         } catch (error) {
             logger.error(`Failed to get setting ${key} for guild ${guildId}:`, error);
@@ -44,13 +58,13 @@ class SettingsService {
     set(guildId, key, value) {
         try {
             const config = this.db.getServerConfig(guildId) || {};
-            const data = config.config_data ? JSON.parse(config.config_data) : {};
+            const data = this._normalizeConfigData(config);
             
             data[key] = value;
             
             this.db.setServerConfig(guildId, {
                 ...config,
-                config_data: JSON.stringify(data)
+                config_data: data
             });
             
             logger.info(`Set ${key}=${JSON.stringify(value)} for guild ${guildId}`);
@@ -69,8 +83,8 @@ class SettingsService {
         try {
             const config = this.db.getServerConfig(guildId);
             if (!config || !config.config_data) return {};
-            
-            return JSON.parse(config.config_data);
+
+            return this._normalizeConfigData(config);
         } catch (error) {
             logger.error(`Failed to get all settings for guild ${guildId}:`, error);
             return {};
@@ -86,13 +100,13 @@ class SettingsService {
         try {
             const config = this.db.getServerConfig(guildId);
             if (!config || !config.config_data) return;
-            
-            const data = JSON.parse(config.config_data);
+
+            const data = this._normalizeConfigData(config);
             delete data[key];
             
             this.db.setServerConfig(guildId, {
                 ...config,
-                config_data: JSON.stringify(data)
+                config_data: data
             });
             
             logger.info(`Deleted setting ${key} for guild ${guildId}`);
@@ -110,7 +124,7 @@ class SettingsService {
         try {
             this.db.setServerConfig(guildId, {
                 guild_id: guildId,
-                config_data: '{}'
+                config_data: {}
             });
             
             logger.info(`Cleared all settings for guild ${guildId}`);

@@ -18,7 +18,7 @@ try {
     config = { tickets: {} };
 }
 
-const ticketConfig = config.tickets || {
+const DEFAULT_TICKET_CONFIG = {
     category_name: '🎫 TICKETS',
     support_role_name: 'Moderator',
     transcript_channel_name: 'mod-log',
@@ -32,6 +32,15 @@ const ticketConfig = config.tickets || {
         { label: 'Partnership', value: 'partner', description: 'Business / Collab', emoji: '🤝' }
     ]
 };
+
+const ticketConfig = {
+    ...DEFAULT_TICKET_CONFIG,
+    ...(config && config.tickets && typeof config.tickets === 'object' ? config.tickets : {})
+};
+
+if (!Array.isArray(ticketConfig.options)) {
+    ticketConfig.options = DEFAULT_TICKET_CONFIG.options;
+}
 
 // Utility functions
 function safeName(str) {

@@ -284,58 +284,56 @@ class DatabaseManager {
 
     updateServerSetting(guildId, key, value) {
         const existing = this.getServerConfig(guildId);
-        const configData = existing?.config_data ? JSON.parse(existing.config_data) : {};
+        const configData = (existing && existing.config_data && typeof existing.config_data === 'object')
+            ? existing.config_data
+            : {};
+
         configData[key] = value;
-        
-        this.setServerConfig(guildId, { 
-            ...existing,
-            config_data: JSON.stringify(configData) 
-        });
+        this.updateServerConfig(guildId, { config_data: configData });
     }
 
     setServerConfig(guildId, data) {
-        try {
-            const existing = this.getServerConfig(guildId);
-            
-            if (existing) {
-                // Update
-                this.db.run(`
-                    UPDATE server_config 
-                    SET mod_log_channel_id = ?,
-                        welcome_channel_id = ?,
-                        allowed_admin_role_ids = ?,
-                        muted_role_id = ?,
-                        config_data = ?
-                    WHERE guild_id = ?
-                `, [
-                    data.mod_log_channel_id ?? existing.mod_log_channel_id,
-                    data.welcome_channel_id ?? existing.welcome_channel_id,
-                    data.allowed_admin_role_ids ?? existing.allowed_admin_role_ids,
-                    data.muted_role_id ?? existing.muted_role_id,
-                    data.config_data ?? existing.config_data,
-                    guildId
-                ]);
-            } else {
-                // Insert
-                this.db.run(`
-                    INSERT INTO server_config 
-                    (guild_id, mod_log_channel_id, welcome_channel_id, allowed_admin_role_ids, muted_role_id, config_data)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                `, [
-                    guildId,
-                    data.mod_log_channel_id || null,
-                    data.welcome_channel_id || null,
-                    data.allowed_admin_role_ids || null,
-                    data.muted_role_id || null,
-                    data.config_data || '{}'
-                ]);
-            }
-            
-            this._save();
-        } catch (error) {
-            console.error('setServerConfig error:', error);
-            throw error;
+        const options = {};
+
+        if (data && Object.prototype.hasOwnProperty.call(data, 'mod_log_channel_id')) {
+            options.mod_log_channel_id = data.mod_log_channel_id;
         }
+        if (data && Object.prototype.hasOwnProperty.call(data, 'welcome_channel_id')) {
+            options.welcome_channel_id = data.welcome_channel_id;
+        }
+        if (data && Object.prototype.hasOwnProperty.call(data, 'muted_role_id')) {
+            options.muted_role_id = data.muted_role_id;
+        }
+
+        if (data && Object.prototype.hasOwnProperty.call(data, 'allowed_admin_role_ids')) {
+            if (Array.isArray(data.allowed_admin_role_ids)) {
+                options.allowed_admin_role_ids = data.allowed_admin_role_ids;
+            } else if (typeof data.allowed_admin_role_ids === 'string') {
+                try {
+                    options.allowed_admin_role_ids = JSON.parse(data.allowed_admin_role_ids);
+                } catch {
+                    options.allowed_admin_role_ids = [];
+                }
+            } else {
+                options.allowed_admin_role_ids = [];
+            }
+        }
+
+        if (data && Object.prototype.hasOwnProperty.call(data, 'config_data')) {
+            if (data.config_data && typeof data.config_data === 'object') {
+                options.config_data = data.config_data;
+            } else if (typeof data.config_data === 'string') {
+                try {
+                    options.config_data = JSON.parse(data.config_data);
+                } catch {
+                    options.config_data = {};
+                }
+            } else {
+                options.config_data = {};
+            }
+        }
+
+        this.updateServerConfig(guildId, options);
     }
 
     getServerSettings(guildId) {
