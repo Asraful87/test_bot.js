@@ -2,7 +2,8 @@
 node_modules/
 
 # Environment variables
-.env
+.env*
+!.env.example
 
 # Local config (may contain cookies/tokens)
 config.yaml
@@ -12,7 +13,9 @@ config.yaml
 YTDL_DEBUG_PATH/
 
 # Database
-bot_data.db
+*.db
+*.db-shm
+*.db-wal
 
 # Logs
 logs/
@@ -29,5 +32,7 @@ __pycache__/
 # VS Code settings
 .vscode/
 
-# Nested Heroku sample app (not part of this repo)
-nodejs-getting-started/
+# Virtual environment
+.venv/
+venv/
+env/

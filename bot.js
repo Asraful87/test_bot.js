@@ -1,7 +1,7 @@
 // Load encryption library FIRST before discord.js voice
 require('./utils/sodium');
 
-const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { readdirSync } = require('fs');
 const { join } = require('path');
 const yaml = require('js-yaml');
@@ -11,7 +11,6 @@ const play = require('play-dl');
 const DatabaseManager = require('./database/db_manager');
 const { setupLogging, getLogger } = require('./utils/logging');
 const ffmpegStatic = require('ffmpeg-static');
-const crypto = require('crypto');
 
 dotenv.config();
 
@@ -129,161 +128,18 @@ class ModBot extends Client {
 
 const bot = new ModBot();
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function withTimeout(promise, ms, label) {
-    const timeout = sleep(ms).then(() => {
-        throw new Error(`${label ?? 'Operation'} timed out after ${ms}ms`);
-    });
-    return Promise.race([promise, timeout]);
-}
-
-async function syncSlashCommands({ guildId }) {
-    const token = process.env.DISCORD_TOKEN;
-    if (!token) {
-        throw new Error('DISCORD_TOKEN is not set; cannot sync slash commands.');
-    }
-
-    const commands = Array.from(bot.commands.values())
-        .map(cmd => cmd.data?.toJSON?.() ?? cmd.data)
-        .filter(Boolean);
-
-    const scopeLabel = guildId ? `guild ${guildId}` : 'globally';
-    const forceSync = ['1', 'true', 'yes', 'on'].includes(String(process.env.FORCE_SYNC_COMMANDS || '').toLowerCase());
-
-    const rest = new REST({ version: '10' }).setToken(token);
-    const applicationId = bot.user?.id;
-    if (!applicationId) {
-        throw new Error('Bot user id is not available; cannot build application command routes.');
-    }
-
-    const route = guildId
-        ? Routes.applicationGuildCommands(applicationId, guildId)
-        : Routes.applicationCommands(applicationId);
-
-    // Avoid Discord bulk-overwrite rate limits on every restart.
-    // If the current registered command *names* already match, skip overwrite unless forced.
-    let existingCommands = null;
-    try {
-        existingCommands = await withTimeout(rest.get(route), 20000, `Slash command list (${scopeLabel})`);
-    } catch (err) {
-        logger.warn(`Could not fetch existing commands for ${scopeLabel}; will attempt sync anyway.`, err);
-    }
-
-    if (!forceSync && Array.isArray(existingCommands) && existingCommands.length > 0) {
-        const existingNames = existingCommands.map(c => c?.name).filter(Boolean).sort();
-        const desiredNames = commands.map(c => c?.name).filter(Boolean).sort();
-
-        const sameNames = existingNames.length === desiredNames.length
-            && crypto.timingSafeEqual(
-                Buffer.from(JSON.stringify(existingNames)),
-                Buffer.from(JSON.stringify(desiredNames))
-            );
-
-        if (sameNames) {
-            logger.info(`✅ Slash commands already registered in ${scopeLabel} (${existingNames.length} commands); skipping overwrite. Set FORCE_SYNC_COMMANDS=1 to force a re-sync.`);
-            return;
-        }
-    }
-
-    logger.info(`⏳ Syncing ${commands.length} slash commands ${guildId ? 'to' : ''} ${scopeLabel}...`);
-
-    const startedAt = Date.now();
-    const slowWarn = setTimeout(() => {
-        logger.warn(`Slash command sync is taking longer than 20s (${scopeLabel}). This is usually Discord REST rate limiting; it should still complete.`);
-    }, 20000);
-
-    try {
-        await rest.put(route, { body: commands });
-    } finally {
-        clearTimeout(slowWarn);
-    }
-
-    logger.info(`✅ Synced ${commands.length} slash commands ${guildId ? 'to guild ' + guildId : 'globally'} in ${Date.now() - startedAt}ms`);
-
-    // Extra verification in logs: fetch registered command names from API.
-    try {
-        const fetched = await withTimeout(rest.get(route), 20000, `Slash command fetch (${scopeLabel})`);
-        const names = Array.isArray(fetched) ? fetched.map(c => c?.name).filter(Boolean) : [];
-        logger.info(`ℹ️ Registered commands in ${scopeLabel}: ${names.length ? names.join(', ') : '(none)'}`);
-    } catch (err) {
-        logger.warn('Could not fetch registered command list after sync:', err);
-    }
-}
+// ============================================================================
+// RUNTIME ONLY - NO COMMAND SYNC LOGIC IN THIS FILE
+// Use scripts/sync-commands.js to register commands manually
+// ============================================================================
 
 bot.once('ready', async () => {
-    if (!bot.synced) {
-        // Prefer environment variables for deployment, but allow config.yaml for local convenience.
-        // Supports:
-        // - GUILD_ID="123" (single guild)
-        // - GUILD_IDS="123,456" (multiple guilds)
-        // - config.yaml -> bot.guild_id (fallback)
-        const configuredGuildIdsRaw =
-            process.env.GUILD_IDS ||
-            process.env.GUILD_ID ||
-            bot.config?.bot?.guild_id ||
-            bot.config?.bot?.guildId;
-
-        const configuredGuildIds = (typeof configuredGuildIdsRaw === 'string' ? configuredGuildIdsRaw : String(configuredGuildIdsRaw || ''))
-            .split(/[\s,]+/)
-            .map(s => s.trim())
-            .filter(Boolean);
-        
-        try {
-            logger.info(`ℹ️ Loaded ${bot.commands.size} command module(s) from disk`);
-
-            if (configuredGuildIds.length > 0) {
-                let syncedAnyGuild = false;
-
-                for (const guildId of configuredGuildIds) {
-                    const guild = bot.guilds.cache.get(guildId) || (await bot.guilds.fetch(guildId).catch(() => null));
-                    if (!guild) {
-                        logger.warn(`GUILD_ID/GUILD_IDS includes ${guildId}, but the bot is not in that guild (or cannot fetch it).`);
-                        continue;
-                    }
-
-                    // Fetch all guild members to populate cache for autocomplete
-                    try {
-                        await guild.members.fetch();
-                        logger.info(`✅ Fetched ${guild.members.cache.size} members for autocomplete in ${guild.name}`);
-                    } catch (err) {
-                        logger.error(`Failed to fetch members for ${guild.name}:`, err);
-                    }
-
-                    await syncSlashCommands({ guildId });
-                    syncedAnyGuild = true;
-                }
-
-                // If the configured guild id(s) were invalid, fall back to global so the bot still gets commands.
-                if (!syncedAnyGuild) {
-                    logger.warn('No configured guild ids were usable; falling back to global slash command sync. Remove/fix GUILD_ID or GUILD_IDS to avoid this.');
-                    await syncSlashCommands({ guildId: null });
-                    logger.info('ℹ️ Global command updates can take up to ~1 hour to appear everywhere. For instant updates in one server, set a valid GUILD_ID (or GUILD_IDS) and restart the bot.');
-                }
-            } else {
-                // Fetch members for all guilds
-                for (const guild of bot.guilds.cache.values()) {
-                    try {
-                        await guild.members.fetch();
-                        logger.info(`✅ Fetched ${guild.members.cache.size} members for ${guild.name}`);
-                    } catch (err) {
-                        logger.error(`Failed to fetch members for ${guild.name}:`, err);
-                    }
-                }
-
-                await syncSlashCommands({ guildId: null });
-                logger.info('ℹ️ Global command updates can take up to ~1 hour to appear everywhere. For instant updates in one server, set GUILD_ID and restart the bot.');
-            }
-            bot.synced = true;
-        } catch (error) {
-            logger.error('Failed to sync commands:', error);
-        }
-    }
-
     logger.info(`Logged in as ${bot.user.tag} (ID: ${bot.user.id})`);
     logger.info(`Connected to ${bot.guilds.cache.size} guild(s)`);
+    logger.info(`ℹ️ Loaded ${bot.commands.size} command module(s) from disk`);
+    logger.info(`⏭️  Command deployment: Use 'node scripts/deploy.js' (manual)`);
+    logger.info(`💡 Member cache: Lazy-loaded on autocomplete`);
+    bot.synced = true;
 });
 
 bot.on('interactionCreate', async interaction => {
@@ -291,6 +147,15 @@ bot.on('interactionCreate', async interaction => {
     if (interaction.isAutocomplete()) {
         const command = bot.commands.get(interaction.commandName);
         if (!command || !command.autocomplete) return;
+        
+        // Lazy-load members for this guild if not cached
+        if (interaction.guild && interaction.guild.members.cache.size < 100) {
+            try {
+                await interaction.guild.members.fetch({ limit: 100 });
+            } catch (err) {
+                logger.warn(`Failed to fetch members for autocomplete in ${interaction.guild.name}`);
+            }
+        }
         
         try {
             await command.autocomplete(interaction);
