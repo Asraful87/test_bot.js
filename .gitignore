@@ -36,3 +36,12 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Temporary/Debug files
+*.tmp
+*.bak
+*.old
+bot_output.txt
+
+# Documentation (keep only README.md)
+*.draft.md

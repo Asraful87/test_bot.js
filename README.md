@@ -1,10 +1,61 @@
-# 🤖 GG Bot - Complete Discord Moderation & Music Bot
+# 🤖 ModBot - Discord Moderation & Music Bot
 
-A powerful, feature-rich Discord bot built with Discord.js v14, featuring comprehensive moderation tools, music playback, ticket system, verification, and advanced security features.
+A powerful, production-ready Discord bot built with Discord.js v14, featuring comprehensive moderation tools, music playback, ticket system, verification, and advanced security features.
 
-[![Discord.js](https://img.shields.io/badge/discord.js-v14.14.1-blue.svg)](https://discord.js.org/)
-[![Node.js](https://img.shields.io/badge/node.js-v24.13.0-green.svg)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
+[![Discord.js](https://img.shields.io/badge/discord.js-v14.25.1-blue.svg)](https://discord.js.org/)
+[![Node.js](https://img.shields.io/badge/node.js-20.x-green.svg)](https://nodejs.org/)
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js 20.x or higher
+- npm 10.x or higher
+- Discord Bot Token ([Create one here](https://discord.com/developers/applications))
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/Asraful87/test_bot.js.git
+cd test_bot.js
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Configure environment variables:
+```bash
+cp .env.example .env
+# Edit .env and add your DISCORD_TOKEN and GUILD_ID
+```
+
+4. Configure bot settings:
+```bash
+cp config.example.yaml config.yaml
+# Edit config.yaml with your server settings
+```
+
+5. Deploy slash commands (one-time setup):
+```bash
+node scripts/deploy.js
+```
+
+6. Start the bot:
+```bash
+npm start
+```
+
+## 🌐 Railway Deployment
+
+1. Push code to GitHub
+2. Connect Railway to your repository
+3. Add environment variables in Railway dashboard:
+   - `DISCORD_TOKEN` - Your bot token
+   - `GUILD_ID` - Your Discord server ID
+4. Railway will auto-deploy on git push
+5. Run `node scripts/deploy.js` locally once to register commands
 
 ## ✨ Features
 
