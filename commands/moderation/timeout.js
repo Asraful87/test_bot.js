@@ -26,11 +26,25 @@ module.exports = {
         const duration = interaction.options.getInteger('duration');
         const reason = interaction.options.getString('reason') || 'No reason provided';
 
-        // Permission checks
+        // Permission checks BEFORE deferring
+        if (!member) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'Member not found in this server.')],
+                ephemeral: true
+            });
+        }
+
         if (member.roles.highest.position >= interaction.member.roles.highest.position && 
             interaction.guild.ownerId !== interaction.user.id) {
             return interaction.reply({
                 embeds: [errorEmbed('Error', 'You cannot timeout someone with a higher or equal role.')],
+                ephemeral: true
+            });
+        }
+
+        if (!member.moderatable) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'I cannot timeout this member. They may have a higher role than me.')],
                 ephemeral: true
             });
         }

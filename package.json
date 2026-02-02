@@ -9,6 +9,8 @@
   },
   "scripts": {
     "start": "node bot.js",
+    "deploy": "node scripts/deploy.js",
+    "check": "node scripts/validate.js",
     "dev": "nodemon bot.js",
     "test": "node scripts/validate.js"
   },

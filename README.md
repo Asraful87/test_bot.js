@@ -31,15 +31,15 @@ cp .env.example .env
 # Edit .env and add your DISCORD_TOKEN and GUILD_ID
 ```
 
-4. Configure bot settings:
+4. Configure bot settings (optional):
 ```bash
 cp config.example.yaml config.yaml
 # Edit config.yaml with your server settings
 ```
 
-5. Deploy slash commands (one-time setup):
+5. **Deploy slash commands (REQUIRED - one-time setup):**
 ```bash
-node scripts/deploy.js
+npm run deploy
 ```
 
 6. Start the bot:
@@ -49,13 +49,34 @@ npm start
 
 ## 🌐 Railway Deployment
 
+### Initial Setup
 1. Push code to GitHub
 2. Connect Railway to your repository
 3. Add environment variables in Railway dashboard:
    - `DISCORD_TOKEN` - Your bot token
    - `GUILD_ID` - Your Discord server ID
+   - (Optional) YouTube credentials for music: `YOUTUBE_COOKIE`, `YOUTUBE_IDENTITY_TOKEN`, `YOUTUBE_SAPISID`
 4. Railway will auto-deploy on git push
-5. Run `node scripts/deploy.js` locally once to register commands
+
+### Command Deployment
+**IMPORTANT:** Commands are **NOT** auto-deployed on bot startup.
+
+After first deploy or when adding/changing commands:
+```bash
+# Run locally with Railway env
+railway run npm run deploy
+
+# Or manually
+node scripts/deploy.js
+```
+
+This prevents API rate limits and keeps the bot startup clean.
+
+### Available Scripts
+- `npm start` - Start the bot (production)
+- `npm run deploy` - Deploy slash commands to Discord
+- `npm run check` - Validate all command files
+- `npm run dev` - Development mode with auto-restart
 
 ## ✨ Features
 
@@ -365,7 +386,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📈 Stats
 
-- **Total Commands**: 48 slash commands total
+- **Total Commands**: 48 slash commands
 - **Blocked Terms**: 145+ spam/scam phrases
 - **Code Lines**: ~5,000 lines of JavaScript
 - **Last Updated**: January 30, 2026
@@ -374,3 +395,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **⭐ If you find this bot useful, please consider starring the repository!**
+/ /   t r i g g e r   r e v i e w 
+ 
+ / /   t r i g g e r   r e v i e w 
+ 
+ 

@@ -19,7 +19,15 @@ module.exports = {
         const user = interaction.options.getUser('member');
         const reason = interaction.options.getString('reason');
         
-        const member = await interaction.guild.members.fetch(user.id);
+        let member;
+        try {
+            member = await interaction.guild.members.fetch(user.id);
+        } catch (error) {
+            return interaction.reply({ 
+                embeds: [errorEmbed('Error', 'Member not found in this server.')], 
+                ephemeral: true 
+            });
+        }
         
         if (!member) {
             return interaction.reply({ 

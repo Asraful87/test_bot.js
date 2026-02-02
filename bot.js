@@ -9,6 +9,7 @@ const fs = require('fs');
 const dotenv = require('dotenv');
 const play = require('play-dl');
 const DatabaseManager = require('./database/db_manager');
+const SettingsService = require('./services/settings_service');
 const { setupLogging, getLogger } = require('./utils/logging');
 const ffmpegStatic = require('ffmpeg-static');
 
@@ -81,6 +82,7 @@ class ModBot extends Client {
 
         this.config = config;
         this.db = new DatabaseManager();
+        this.settings = null; // Initialized after DB is ready
         this.commands = new Collection();
         this.synced = false;
     }
@@ -117,6 +119,7 @@ class ModBot extends Client {
     async setupHook() {
         try {
             await this.db.initDb();
+            this.settings = new SettingsService(this.db);
             logger.info('Database initialized');
         } catch (error) {
             logger.error('DB init failed:', error);
@@ -138,33 +141,7 @@ bot.once('ready', async () => {
     logger.info(`Connected to ${bot.guilds.cache.size} guild(s)`);
     logger.info(`ℹ️ Loaded ${bot.commands.size} command module(s) from disk`);
     logger.info(`💡 Member cache: Lazy-loaded on autocomplete`);
-    
-    // Auto-deploy commands on startup
-    try {
-        const guildId = process.env.GUILD_ID || config.guild_id;
-        if (!guildId) {
-            logger.warn('⚠️  GUILD_ID not set - commands will not be deployed');
-            return;
-        }
-        
-        const commands = bot.commands.map(cmd => cmd.data.toJSON());
-        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-        
-        logger.info(`🚀 Auto-deploying ${commands.length} commands to guild ${guildId}...`);
-        const startTime = Date.now();
-        
-        await rest.put(
-            Routes.applicationGuildCommands(bot.user.id, guildId),
-            { body: commands }
-        );
-        
-        const duration = Date.now() - startTime;
-        logger.info(`✅ Commands deployed successfully in ${duration}ms`);
-        bot.synced = true;
-    } catch (error) {
-        logger.error('❌ Command deployment failed:', error);
-        logger.warn('⚠️  Bot will continue running, but commands may not be available');
-    }
+    logger.info(`⚠️  Auto-deploy DISABLED. Deploy commands manually: npm run deploy`);
 });
 
 bot.on('interactionCreate', async interaction => {
@@ -267,13 +244,15 @@ bot.on('interactionCreate', async interaction => {
 bot.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
     
-    const automod = bot.config.automod;
-    if (!automod.enabled) return;
+    const automod = bot.config?.automod;
+    if (!automod || !automod.enabled) return;
     
-    // Check exempt roles/channels
-    if (automod.exempt_channel_ids.includes(message.channel.id)) return;
+    // Check exempt roles/channels (with safe defaults)
+    const exemptChannels = automod.exempt_channel_ids || [];
+    const exemptRoles = automod.exempt_role_ids || [];
+    if (exemptChannels.includes(message.channel.id)) return;
     const memberRoles = message.member.roles.cache.map(r => r.id);
-    if (automod.exempt_role_ids.some(roleId => memberRoles.includes(roleId))) return;
+    if (exemptRoles.some(roleId => memberRoles.includes(roleId))) return;
     
     let violation = null;
     
@@ -298,7 +277,8 @@ bot.on('messageCreate', async (message) => {
     
     // Check blocked words
     const content = message.content.toLowerCase();
-    for (const word of automod.blocked_words) {
+    const blockedWords = automod.blocked_words || [];
+    for (const word of blockedWords) {
         if (content.includes(word.toLowerCase())) {
             violation = `Blocked word: ${word}`;
             break;
@@ -344,8 +324,8 @@ const duplicateCache = new Map(); // userId -> array of message contents
 bot.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
     
-    const antispam = bot.config.antispam;
-    if (!antispam.enabled) return;
+    const antispam = bot.config?.antispam;
+    if (!antispam || !antispam.enabled) return;
     
     const userId = message.author.id;
     const now = Date.now();
@@ -413,8 +393,8 @@ bot.on('messageCreate', async (message) => {
 const joinCache = new Map(); // guildId -> array of join timestamps
 
 bot.on('guildMemberAdd', async (member) => {
-    const antiraid = bot.config.antiraid;
-    if (!antiraid.enabled) return;
+    const antiraid = bot.config?.antiraid;
+    if (!antiraid || !antiraid.enabled) return;
     
     const guildId = member.guild.id;
     const now = Date.now();
