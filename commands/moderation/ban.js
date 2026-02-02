@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { safeReply, safeError } = require('../../utils/respond');
+const { requireGuild, requireUserPerms, requireBotPerms, roleHierarchyCheck } = require('../../utils/permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -22,26 +24,18 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
     async execute(interaction, bot) {
+        // Validation using permission helpers
+        if (!requireGuild(interaction)) return;
+        if (!requireUserPerms(interaction, [PermissionFlagsBits.BanMembers], 'ban members')) return;
+        if (!requireBotPerms(interaction, [PermissionFlagsBits.BanMembers], 'ban members')) return;
+
         const target = interaction.options.getUser('member');
         const reason = interaction.options.getString('reason') || 'No reason provided';
         const deleteDays = interaction.options.getInteger('delete_days') || 0;
         const member = interaction.guild.members.cache.get(target.id);
 
-        if (member) {
-            if (!member.bannable) {
-                return interaction.reply({ 
-                    embeds: [errorEmbed('Error', 'I cannot ban this member.')], 
-                    ephemeral: true 
-                });
-            }
-
-            if (member.roles.highest.position >= interaction.member.roles.highest.position) {
-                return interaction.reply({ 
-                    embeds: [errorEmbed('Error', 'You cannot ban a member with equal or higher role.')], 
-                    ephemeral: true 
-                });
-            }
-        }
+        // Role hierarchy check (only if member still in guild)
+        if (member && !roleHierarchyCheck(interaction, member, 'ban')) return;
 
         try {
             await interaction.guild.members.ban(target.id, {
@@ -59,15 +53,11 @@ module.exports = {
                 { delete_days: deleteDays }
             );
 
-            await interaction.reply({
+            await safeReply(interaction, {
                 embeds: [successEmbed('Member Banned', `${target.tag} has been banned.\n**Reason:** ${reason}`)]
             });
         } catch (error) {
-            console.error(error);
-            await interaction.reply({ 
-                embeds: [errorEmbed('Error', 'Failed to ban member.')], 
-                ephemeral: true 
-            });
+            await safeError(interaction, error, 'Failed to ban member');
         }
     }
 };

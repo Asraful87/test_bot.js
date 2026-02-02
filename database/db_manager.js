@@ -284,9 +284,58 @@ class DatabaseManager {
 
     updateServerSetting(guildId, key, value) {
         const existing = this.getServerConfig(guildId);
-        const data = (existing && existing.config_data) || {};
-        data[key] = value;
-        this.updateServerConfig(guildId, { config_data: data });
+        const configData = existing?.config_data ? JSON.parse(existing.config_data) : {};
+        configData[key] = value;
+        
+        this.setServerConfig(guildId, { 
+            ...existing,
+            config_data: JSON.stringify(configData) 
+        });
+    }
+
+    setServerConfig(guildId, data) {
+        try {
+            const existing = this.getServerConfig(guildId);
+            
+            if (existing) {
+                // Update
+                this.db.run(`
+                    UPDATE server_config 
+                    SET mod_log_channel_id = ?,
+                        welcome_channel_id = ?,
+                        allowed_admin_role_ids = ?,
+                        muted_role_id = ?,
+                        config_data = ?
+                    WHERE guild_id = ?
+                `, [
+                    data.mod_log_channel_id ?? existing.mod_log_channel_id,
+                    data.welcome_channel_id ?? existing.welcome_channel_id,
+                    data.allowed_admin_role_ids ?? existing.allowed_admin_role_ids,
+                    data.muted_role_id ?? existing.muted_role_id,
+                    data.config_data ?? existing.config_data,
+                    guildId
+                ]);
+            } else {
+                // Insert
+                this.db.run(`
+                    INSERT INTO server_config 
+                    (guild_id, mod_log_channel_id, welcome_channel_id, allowed_admin_role_ids, muted_role_id, config_data)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `, [
+                    guildId,
+                    data.mod_log_channel_id || null,
+                    data.welcome_channel_id || null,
+                    data.allowed_admin_role_ids || null,
+                    data.muted_role_id || null,
+                    data.config_data || '{}'
+                ]);
+            }
+            
+            this._save();
+        } catch (error) {
+            console.error('setServerConfig error:', error);
+            throw error;
+        }
     }
 
     getServerSettings(guildId) {

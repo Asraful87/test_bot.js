@@ -325,7 +325,7 @@ module.exports = {
                         title: details.title,
                         url: finalUrl,
                         duration: details.durationInSec,
-                        thumbnail: details.thumbnails[0]?.url || 'https://via.placeholder.com/150',
+                        thumbnail: (details.thumbnails && details.thumbnails[0]?.url) || 'https://via.placeholder.com/150',
                         requestedBy: interaction.user,
                         source: 'youtube'
                     };
@@ -377,7 +377,7 @@ module.exports = {
                             title: item.name || item.title || 'SoundCloud Track',
                             url: scUrl,
                             duration: item.durationInSec || item.duration || 0,
-                            thumbnail: item.thumbnails?.[0]?.url || item.thumbnail || 'https://via.placeholder.com/150',
+                            thumbnail: (item.thumbnails && item.thumbnails[0]?.url) || item.thumbnail || 'https://via.placeholder.com/150',
                             requestedBy: interaction.user,
                             source: 'soundcloud'
                         };

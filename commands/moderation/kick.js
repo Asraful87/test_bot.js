@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { safeReply, safeError } = require('../../utils/respond');
+const { requireGuild, requireUserPerms, requireBotPerms, roleHierarchyCheck, isKickable } = require('../../utils/permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,6 +18,11 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
 
     async execute(interaction, bot) {
+        // Validation using permission helpers
+        if (!requireGuild(interaction)) return;
+        if (!requireUserPerms(interaction, [PermissionFlagsBits.KickMembers], 'kick members')) return;
+        if (!requireBotPerms(interaction, [PermissionFlagsBits.KickMembers], 'kick members')) return;
+
         const member = interaction.options.getMember('member');
         const reason = interaction.options.getString('reason') || 'No reason provided';
         
@@ -28,19 +35,14 @@ module.exports = {
         
         const target = member.user;
 
-        if (!member.kickable) {
+        if (!isKickable(member)) {
             return interaction.reply({ 
-                embeds: [errorEmbed('Error', 'I cannot kick this member.')], 
+                embeds: [errorEmbed('Error', 'I cannot kick this member. They may have a higher role than me.')], 
                 ephemeral: true 
             });
         }
 
-        if (member.roles.highest.position >= interaction.member.roles.highest.position) {
-            return interaction.reply({ 
-                embeds: [errorEmbed('Error', 'You cannot kick a member with equal or higher role.')], 
-                ephemeral: true 
-            });
-        }
+        if (!roleHierarchyCheck(interaction, member, 'kick')) return;
 
         try {
             await member.kick(reason);
@@ -54,15 +56,11 @@ module.exports = {
                 reason
             );
 
-            await interaction.reply({
+            await safeReply(interaction, {
                 embeds: [successEmbed('Member Kicked', `${target.tag} has been kicked.\n**Reason:** ${reason}`)]
             });
         } catch (error) {
-            console.error(error);
-            await interaction.reply({ 
-                embeds: [errorEmbed('Error', 'Failed to kick member.')], 
-                ephemeral: true 
-            });
+            await safeError(interaction, error, 'Failed to kick member');
         }
     }
 };
