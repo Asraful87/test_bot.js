@@ -1,7 +1,7 @@
 // Load encryption library FIRST before discord.js voice
 require('./utils/sodium');
 
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const { readdirSync } = require('fs');
 const { join } = require('path');
 const yaml = require('js-yaml');
@@ -129,17 +129,42 @@ class ModBot extends Client {
 const bot = new ModBot();
 
 // ============================================================================
-// RUNTIME ONLY - NO COMMAND SYNC LOGIC IN THIS FILE
-// Use scripts/sync-commands.js to register commands manually
+// AUTO-DEPLOY ON STARTUP (Railway/Production)
+// Commands will be deployed automatically when bot starts
 // ============================================================================
 
 bot.once('ready', async () => {
     logger.info(`Logged in as ${bot.user.tag} (ID: ${bot.user.id})`);
     logger.info(`Connected to ${bot.guilds.cache.size} guild(s)`);
     logger.info(`ℹ️ Loaded ${bot.commands.size} command module(s) from disk`);
-    logger.info(`⏭️  Command deployment: Use 'node scripts/deploy.js' (manual)`);
     logger.info(`💡 Member cache: Lazy-loaded on autocomplete`);
-    bot.synced = true;
+    
+    // Auto-deploy commands on startup
+    try {
+        const guildId = process.env.GUILD_ID || config.guild_id;
+        if (!guildId) {
+            logger.warn('⚠️  GUILD_ID not set - commands will not be deployed');
+            return;
+        }
+        
+        const commands = bot.commands.map(cmd => cmd.data.toJSON());
+        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+        
+        logger.info(`🚀 Auto-deploying ${commands.length} commands to guild ${guildId}...`);
+        const startTime = Date.now();
+        
+        await rest.put(
+            Routes.applicationGuildCommands(bot.user.id, guildId),
+            { body: commands }
+        );
+        
+        const duration = Date.now() - startTime;
+        logger.info(`✅ Commands deployed successfully in ${duration}ms`);
+        bot.synced = true;
+    } catch (error) {
+        logger.error('❌ Command deployment failed:', error);
+        logger.warn('⚠️  Bot will continue running, but commands may not be available');
+    }
 });
 
 bot.on('interactionCreate', async interaction => {
