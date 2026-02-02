@@ -365,7 +365,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📈 Stats
 
-- **Total Commands**: 48 slash commands
+- **Total Commands**: 48 slash commands total
 - **Blocked Terms**: 145+ spam/scam phrases
 - **Code Lines**: ~5,000 lines of JavaScript
 - **Last Updated**: January 30, 2026
