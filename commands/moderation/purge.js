@@ -16,6 +16,18 @@ module.exports = {
     async execute(interaction, bot) {
         const amount = interaction.options.getInteger('amount');
 
+        const moderationConfig = bot?.config?.moderation || {};
+        const maxPurge = Number.isFinite(Number(moderationConfig.max_purge_amount))
+            ? Number(moderationConfig.max_purge_amount)
+            : 100;
+
+        if (maxPurge > 0 && amount > maxPurge) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', `Max purge amount is ${maxPurge} messages.`)],
+                ephemeral: true
+            });
+        }
+
         await interaction.deferReply({ ephemeral: true });
 
         try {

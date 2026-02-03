@@ -10,8 +10,11 @@ const DEFAULT_ANTIRAID = {
     join_threshold: 5,
     join_interval_seconds: 10,
     min_account_age_days: 7,
-    auto_timeout_minutes: 10
+    auto_timeout_minutes: 10,
+    slowmode_seconds: 0
 };
+
+const lockdownSlowmodeCache = new Map(); // channelId -> previous slowmode seconds
 
 function coerceNumber(value, fallback) {
     const n = Number(value);
@@ -25,7 +28,14 @@ function normalizeAntiRaidConfig(input) {
         join_threshold: coerceNumber(cfg.join_threshold, DEFAULT_ANTIRAID.join_threshold),
         join_interval_seconds: coerceNumber(cfg.join_interval_seconds, DEFAULT_ANTIRAID.join_interval_seconds),
         min_account_age_days: coerceNumber(cfg.min_account_age_days, DEFAULT_ANTIRAID.min_account_age_days),
-        auto_timeout_minutes: coerceNumber(cfg.auto_timeout_minutes, DEFAULT_ANTIRAID.auto_timeout_minutes)
+        auto_timeout_minutes: coerceNumber(cfg.auto_timeout_minutes, DEFAULT_ANTIRAID.auto_timeout_minutes),
+        slowmode_seconds: Math.max(
+            0,
+            Math.min(
+                21600,
+                coerceNumber(cfg.slowmode_seconds, DEFAULT_ANTIRAID.slowmode_seconds)
+            )
+        )
     };
 }
 
@@ -133,6 +143,7 @@ module.exports = {
                     { name: 'Join Interval', value: `${antiraid.join_interval_seconds} seconds`, inline: true },
                     { name: 'Min Account Age', value: `${antiraid.min_account_age_days} days`, inline: true },
                     { name: 'Auto Timeout', value: `${antiraid.auto_timeout_minutes} minutes`, inline: true },
+                    { name: 'Lockdown Slowmode', value: `${antiraid.slowmode_seconds} seconds`, inline: true },
                     { name: '\u200B', value: '\u200B', inline: true }
                 )
                 .setDescription('Monitors for suspicious join patterns and new accounts')
@@ -145,6 +156,8 @@ module.exports = {
             
             const guild = interaction.guild;
             let channelsLocked = 0;
+            const antiraid = getEffectiveAntiRaidConfig(interaction, bot);
+            const slowmodeSeconds = antiraid.slowmode_seconds;
             
             // Get @everyone role
             const everyoneRole = guild.roles.everyone;
@@ -160,6 +173,16 @@ module.exports = {
                             CreatePrivateThreads: false
                         });
                         channelsLocked++;
+
+                        if (slowmodeSeconds > 0 && typeof channel.setRateLimitPerUser === 'function') {
+                            const current = channel.rateLimitPerUser || 0;
+                            if (current !== slowmodeSeconds) {
+                                if (!lockdownSlowmodeCache.has(channel.id)) {
+                                    lockdownSlowmodeCache.set(channel.id, current);
+                                }
+                                await channel.setRateLimitPerUser(slowmodeSeconds, 'Anti-Raid lockdown slowmode');
+                            }
+                        }
                     } catch (error) {
                         console.error(`Failed to lock ${channel.name}:`, error);
                     }
@@ -198,6 +221,12 @@ module.exports = {
                             CreatePrivateThreads: null
                         });
                         channelsUnlocked++;
+
+                        if (lockdownSlowmodeCache.has(channel.id) && typeof channel.setRateLimitPerUser === 'function') {
+                            const previous = lockdownSlowmodeCache.get(channel.id);
+                            await channel.setRateLimitPerUser(previous, 'Anti-Raid lockdown removed');
+                            lockdownSlowmodeCache.delete(channel.id);
+                        }
                     } catch (error) {
                         console.error(`Failed to unlock ${channel.name}:`, error);
                     }

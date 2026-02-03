@@ -19,6 +19,7 @@ try {
 }
 
 const DEFAULT_TICKET_CONFIG = {
+    enabled: true,
     category_name: '🎫 TICKETS',
     support_role_name: 'Moderator',
     transcript_channel_name: 'mod-log',
@@ -40,6 +41,10 @@ const ticketConfig = {
 
 if (!Array.isArray(ticketConfig.options)) {
     ticketConfig.options = DEFAULT_TICKET_CONFIG.options;
+}
+
+function ticketsEnabled() {
+    return ticketConfig.enabled !== false;
 }
 
 // Utility functions
@@ -122,6 +127,13 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction, bot) {
+        if (!ticketsEnabled()) {
+            return interaction.reply({
+                embeds: [errorEmbed('Disabled', 'Ticket system is disabled in config.yaml.')],
+                ephemeral: true
+            });
+        }
+
         const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 
         if (!targetChannel.isTextBased()) {
@@ -177,6 +189,13 @@ module.exports = {
 
     // Handle ticket select menu
     async handleTicketSelect(interaction, bot) {
+        if (!ticketsEnabled()) {
+            return interaction.reply({
+                embeds: [errorEmbed('Disabled', 'Ticket system is disabled in config.yaml.')],
+                ephemeral: true
+            });
+        }
+
         try {
             const ticketType = interaction.values[0];
             const guild = interaction.guild;
@@ -339,6 +358,13 @@ module.exports = {
 
     // Handle ticket action buttons
     async handleTicketButton(interaction, bot, action) {
+        if (!ticketsEnabled()) {
+            return interaction.reply({
+                embeds: [errorEmbed('Disabled', 'Ticket system is disabled in config.yaml.')],
+                ephemeral: true
+            });
+        }
+
         const channel = interaction.channel;
         const member = interaction.member;
         const guild = interaction.guild;

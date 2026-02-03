@@ -1,4 +1,4 @@
-# Example configuration (SAFE TO COMMIT)
+﻿# Example configuration (SAFE TO COMMIT)
 # Copy to config.yaml for local development, or use environment variables on Heroku.
 
 bot:
@@ -65,3 +65,6 @@ tickets:
   support_role_name: "Support"
   panel_title: "🎫 Support Tickets"
   panel_description: "Click a button to create a ticket."
+
+
+

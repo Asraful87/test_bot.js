@@ -18,6 +18,16 @@ module.exports = {
     async execute(interaction, bot) {
         const user = interaction.options.getUser('member');
         const reason = interaction.options.getString('reason');
+
+        const moderationConfig = bot?.config?.moderation || {};
+        const warnThreshold = Number.isFinite(Number(moderationConfig.warn_threshold))
+            ? Number(moderationConfig.warn_threshold)
+            : 0;
+        const warnAction = (moderationConfig.warn_threshold_action || '').toString().trim().toLowerCase();
+        const warnTimeoutRaw = Number(moderationConfig.warn_threshold_timeout_duration);
+        const warnTimeoutMinutes = Number.isFinite(warnTimeoutRaw) && warnTimeoutRaw > 0
+            ? warnTimeoutRaw
+            : 60;
         
         let member;
         try {
@@ -58,10 +68,50 @@ module.exports = {
 
             const warningCount = bot.db.getWarningCount(interaction.guild.id, target.id);
 
+            let autoActionResult = null;
+            let autoActionError = null;
+            const disabledActions = new Set(['none', 'off', 'disabled']);
+
+            if (warnThreshold > 0 && warningCount >= warnThreshold && warnAction && !disabledActions.has(warnAction)) {
+                const actionReason = `Auto-action: reached ${warnThreshold} warnings`;
+                try {
+                    if (warnAction === 'timeout') {
+                        if (member.moderatable) {
+                            await member.timeout(warnTimeoutMinutes * 60 * 1000, actionReason);
+                            autoActionResult = `Timeout for ${warnTimeoutMinutes} minute(s)`;
+                        } else {
+                            autoActionError = 'Auto-timeout failed (missing permissions).';
+                        }
+                    } else if (warnAction === 'kick') {
+                        if (member.kickable) {
+                            await member.kick(actionReason);
+                            autoActionResult = 'Kicked from server';
+                        } else {
+                            autoActionError = 'Auto-kick failed (missing permissions).';
+                        }
+                    } else if (warnAction === 'ban') {
+                        if (member.bannable) {
+                            await member.ban({ reason: actionReason });
+                            autoActionResult = 'Banned from server';
+                        } else {
+                            autoActionError = 'Auto-ban failed (missing permissions).';
+                        }
+                    }
+                } catch (autoErr) {
+                    autoActionError = `Auto-action failed: ${autoErr.message || autoErr}`;
+                }
+            }
+
+            const autoActionLine = autoActionResult
+                ? `\n**Auto-Action:** ${autoActionResult}`
+                : autoActionError
+                    ? `\n**Auto-Action:** ${autoActionError}`
+                    : '';
+
             await interaction.reply({
                 embeds: [successEmbed(
                     'Member Warned',
-                    `${target.tag} has been warned.\n**Reason:** ${reason}\n**Total Warnings:** ${warningCount}`
+                    `${target.tag} has been warned.\n**Reason:** ${reason}\n**Total Warnings:** ${warningCount}${autoActionLine}`
                 )]
             });
 

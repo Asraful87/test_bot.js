@@ -1,7 +1,7 @@
 // Load encryption library FIRST before discord.js voice
 require('./utils/sodium');
 
-const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, ActivityType } = require('discord.js');
 const { readdirSync } = require('fs');
 const { join } = require('path');
 const yaml = require('js-yaml');
@@ -37,6 +37,46 @@ try {
 // Setup logging
 setupLogging();
 const logger = getLogger('modbot');
+
+const COMMAND_COOLDOWNS = new Map();
+const DESTRUCTIVE_COMMANDS = new Set([
+    'ban',
+    'unban',
+    'kick',
+    'timeout',
+    'untimeout',
+    'mute',
+    'unmute',
+    'purge',
+    'warn',
+    'unwarn',
+    'clearwarnings'
+]);
+
+function getDestructiveCooldownSeconds(bot) {
+    const raw = bot?.config?.moderation?.destructive_command_cooldown;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n;
+}
+
+function resolveActivityType(value) {
+    const v = (value || '').toString().trim().toLowerCase();
+    switch (v) {
+        case 'playing':
+            return ActivityType.Playing;
+        case 'listening':
+            return ActivityType.Listening;
+        case 'watching':
+            return ActivityType.Watching;
+        case 'competing':
+            return ActivityType.Competing;
+        case 'streaming':
+            return ActivityType.Streaming;
+        default:
+            return ActivityType.Watching;
+    }
+}
 
 // Configure play-dl tokens when provided.
 // Prefer environment variables (Heroku/GitHub secrets) over config.yaml.
@@ -139,6 +179,20 @@ const bot = new ModBot();
 bot.once('ready', async () => {
     logger.info(`Logged in as ${bot.user.tag} (ID: ${bot.user.id})`);
     logger.info(`Connected to ${bot.guilds.cache.size} guild(s)`);
+
+    const statusText = bot.config?.bot?.status;
+    if (statusText && bot.user) {
+        const activityType = resolveActivityType(bot.config?.bot?.activity_type);
+        try {
+            bot.user.setPresence({
+                activities: [{ name: statusText, type: activityType }],
+                status: 'online'
+            });
+            logger.info(`Presence set: ${bot.config?.bot?.activity_type || 'watching'} ${statusText}`);
+        } catch (err) {
+            logger.warn('Failed to set presence:', err);
+        }
+    }
     logger.info(`ℹ️ Loaded ${bot.commands.size} command module(s) from disk`);
     logger.info(`💡 Member cache: Lazy-loaded on autocomplete`);
     logger.info(`⚠️  Auto-deploy DISABLED. Deploy commands manually: npm run deploy`);
@@ -220,6 +274,22 @@ bot.on('interactionCreate', async interaction => {
 
     const command = bot.commands.get(interaction.commandName);
     if (!command) return;
+
+    const cooldownSeconds = getDestructiveCooldownSeconds(bot);
+    if (cooldownSeconds > 0 && DESTRUCTIVE_COMMANDS.has(interaction.commandName)) {
+        const key = `${interaction.guildId || 'dm'}:${interaction.user.id}:${interaction.commandName}`;
+        const now = Date.now();
+        const lastUsed = COMMAND_COOLDOWNS.get(key) || 0;
+        const remainingMs = (lastUsed + cooldownSeconds * 1000) - now;
+        if (remainingMs > 0) {
+            const remaining = Math.ceil(remainingMs / 1000);
+            return interaction.reply({
+                content: `⏳ Please wait ${remaining}s before using /${interaction.commandName} again.`,
+                ephemeral: true
+            });
+        }
+        COMMAND_COOLDOWNS.set(key, now);
+    }
 
     try {
         await command.execute(interaction, bot);
