@@ -68,8 +68,11 @@ tickets:
   panel_description: "Click a button to create a ticket."
 
 motivational:
-  enabled: false
+  # Optional: set a specific channel for all servers.
+  # If empty, the bot will auto-pick a writable text channel per server.
   channel_id: ""
+  # Optional: map guild IDs to channel IDs for per-server targeting.
+  channel_ids: {}
   interval_minutes: 15
   quotes:
     - "Keep going. Every step counts."
@@ -77,6 +80,25 @@ motivational:
     - "You are capable of more than you think."
     - "Focus on the next right action."
     - "Consistency beats intensity."
+    - "Do the work, and the results will follow."
+    - "Start where you are. Use what you have."
+    - "One good decision at a time."
+    - "Your future self will thank you."
+    - "Make today count."
+    - "Progress over perfection."
+    - "Keep it simple. Keep it moving."
+    - "You are building momentum."
+    - "Believe you can, then prove it."
+    - "Stay patient and stay persistent."
+    - "Discipline creates freedom."
+    - "Every day is a fresh start."
+    - "Show up, even when it is hard."
+    - "You are stronger than your excuses."
+    - "Energy follows action."
+    - "Dream big. Start small. Act now."
+    - "Turn effort into excellence."
+    - "Be proud of how far you have come."
+    - "Do not quit. Do it for you."
 
 
 

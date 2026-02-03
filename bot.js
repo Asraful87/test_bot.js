@@ -1,7 +1,7 @@
 // Load encryption library FIRST before discord.js voice
 require('./utils/sodium');
 
-const { Client, GatewayIntentBits, Collection, REST, Routes, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, ActivityType, PermissionFlagsBits } = require('discord.js');
 const { readdirSync } = require('fs');
 const { join } = require('path');
 const yaml = require('js-yaml');
@@ -85,6 +85,97 @@ function shuffleArray(items) {
         [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr;
+}
+
+const DEFAULT_MOTIVATIONAL_QUOTES = [
+    'Keep going. Every step counts.',
+    'Small progress is still progress.',
+    'You are capable of more than you think.',
+    'Focus on the next right action.',
+    'Consistency beats intensity.',
+    'Do the work, and the results will follow.',
+    'Start where you are. Use what you have.',
+    'One good decision at a time.',
+    'Your future self will thank you.',
+    'Make today count.',
+    'Progress over perfection.',
+    'Keep it simple. Keep it moving.',
+    'You are building momentum.',
+    'Believe you can, then prove it.',
+    'Stay patient and stay persistent.',
+    'Discipline creates freedom.',
+    'Every day is a fresh start.',
+    'Show up, even when it is hard.',
+    'You are stronger than your excuses.',
+    'Energy follows action.',
+    'Dream big. Start small. Act now.',
+    'Turn effort into excellence.',
+    'Be proud of how far you have come.',
+    'Do not quit. Do it for you.'
+];
+
+const motivationalState = new Map(); // guildId -> { queue, last, noChannelLogged }
+const motivationalChannelCache = new Map(); // guildId -> channelId
+
+async function canSendInChannel(channel, me) {
+    if (!channel || !channel.isTextBased() || channel.isThread()) return false;
+    const perms = channel.permissionsFor(me);
+    return perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]) ?? false;
+}
+
+async function resolveMotivationalChannel(bot, guild) {
+    const cachedId = motivationalChannelCache.get(guild.id);
+    if (cachedId) {
+        const cached = guild.channels.cache.get(cachedId) || await guild.channels.fetch(cachedId).catch(() => null);
+        const me = guild.members.me || await guild.members.fetchMe().catch(() => null);
+        if (cached && me && await canSendInChannel(cached, me)) {
+            return cached;
+        }
+        motivationalChannelCache.delete(guild.id);
+    }
+
+    const motivational = bot.config?.motivational || {};
+    const channelIds = (motivational.channel_ids && typeof motivational.channel_ids === 'object')
+        ? motivational.channel_ids
+        : {};
+    const preferredId = channelIds[guild.id] || motivational.channel_id;
+
+    const me = guild.members.me || await guild.members.fetchMe().catch(() => null);
+    if (!me) return null;
+
+    if (preferredId) {
+        const preferred = guild.channels.cache.get(preferredId) || await guild.channels.fetch(preferredId).catch(() => null);
+        if (preferred && await canSendInChannel(preferred, me)) {
+            motivationalChannelCache.set(guild.id, preferred.id);
+            return preferred;
+        }
+    }
+
+    const candidates = [
+        guild.systemChannel,
+        guild.rulesChannel,
+        guild.publicUpdatesChannel
+    ].filter(Boolean);
+
+    for (const channel of candidates) {
+        if (await canSendInChannel(channel, me)) {
+            motivationalChannelCache.set(guild.id, channel.id);
+            return channel;
+        }
+    }
+
+    const fallback = guild.channels.cache
+        .filter(ch => ch.isTextBased() && !ch.isThread())
+        .sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0));
+
+    for (const channel of fallback.values()) {
+        if (await canSendInChannel(channel, me)) {
+            motivationalChannelCache.set(guild.id, channel.id);
+            return channel;
+        }
+    }
+
+    return null;
 }
 
 // Configure play-dl tokens when provided.
@@ -202,11 +293,9 @@ bot.once('ready', async () => {
             logger.warn('Failed to set presence:', err);
         }
     }
-    // Motivational messages scheduler
+    // Motivational messages scheduler (always on)
     try {
         const motivational = bot.config?.motivational || {};
-        const enabled = Boolean(motivational.enabled);
-        const channelId = (motivational.channel_id || '').toString().trim();
         const intervalMinutesRaw = Number(motivational.interval_minutes);
         const intervalMinutes = Number.isFinite(intervalMinutesRaw) && intervalMinutesRaw > 0
             ? intervalMinutesRaw
@@ -217,40 +306,45 @@ bot.once('ready', async () => {
             .map(q => (typeof q === 'string' ? q.trim() : ''))
             .filter(q => q.length > 0);
 
-        if (enabled) {
-            if (!channelId) {
-                logger.warn('Motivational messages enabled but channel_id is not set.');
-            } else if (quotes.length === 0) {
-                logger.warn('Motivational messages enabled but no quotes were provided.');
-            } else {
-                let queue = shuffleArray(quotes);
-                let lastQuote = null;
+        const effectiveQuotes = quotes.length >= 20 ? quotes : DEFAULT_MOTIVATIONAL_QUOTES;
 
-                setInterval(async () => {
-                    try {
-                        if (queue.length === 0) queue = shuffleArray(quotes);
-                        let quote = queue.shift();
-                        if (quote === lastQuote && queue.length > 0) {
-                            queue.push(quote);
-                            quote = queue.shift();
+        setInterval(async () => {
+            for (const [, guild] of bot.guilds.cache) {
+                try {
+                    const channel = await resolveMotivationalChannel(bot, guild);
+                    const state = motivationalState.get(guild.id) || {
+                        queue: shuffleArray(effectiveQuotes),
+                        last: null,
+                        noChannelLogged: false
+                    };
+
+                    if (!channel) {
+                        if (!state.noChannelLogged) {
+                            logger.warn(`Motivational messages: no writable channel found in guild ${guild.id}.`);
+                            state.noChannelLogged = true;
+                            motivationalState.set(guild.id, state);
                         }
-                        lastQuote = quote;
-
-                        const channel = await bot.channels.fetch(channelId).catch(() => null);
-                        if (!channel || !channel.isTextBased()) {
-                            logger.warn(`Motivational messages: channel ${channelId} not found or not text-based.`);
-                            return;
-                        }
-
-                        await channel.send({ content: quote });
-                    } catch (error) {
-                        logger.error('Motivational message send failed:', error);
+                        continue;
                     }
-                }, intervalMinutes * 60 * 1000);
 
-                logger.info(`Motivational messages scheduled every ${intervalMinutes} minute(s) for channel ${channelId}.`);
+                    state.noChannelLogged = false;
+                    if (state.queue.length === 0) state.queue = shuffleArray(effectiveQuotes);
+                    let quote = state.queue.shift();
+                    if (quote === state.last && state.queue.length > 0) {
+                        state.queue.push(quote);
+                        quote = state.queue.shift();
+                    }
+                    state.last = quote;
+                    motivationalState.set(guild.id, state);
+
+                    await channel.send({ content: quote });
+                } catch (error) {
+                    logger.error('Motivational message send failed:', error);
+                }
             }
-        }
+        }, intervalMinutes * 60 * 1000);
+
+        logger.info(`Motivational messages scheduled every ${intervalMinutes} minute(s) for all guilds.`);
     } catch (error) {
         logger.error('Failed to initialize motivational messages:', error);
     }
