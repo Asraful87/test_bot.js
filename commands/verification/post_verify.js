@@ -1,40 +1,22 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
-const yaml = require('js-yaml');
-const fs = require('fs');
-const path = require('path');
 
-// Load config
-let config;
-try {
-    const configPath = path.join(__dirname, '../../config.yaml');
-    if (fs.existsSync(configPath)) {
-        config = yaml.load(fs.readFileSync(configPath, 'utf8'));
-    } else {
-        config = {
-            verification: {
-                role_name: 'Verified',
-                panel_title: '✅ Verification',
-                panel_description: 'Click **Verify** to unlock the server.'
-            }
-        };
-    }
-} catch (e) {
-    console.error('Failed to load config.yaml:', e?.message || String(e));
-    config = {
-        verification: {
-            role_name: 'Verified',
-            panel_title: '✅ Verification',
-            panel_description: 'Click **Verify** to unlock the server.'
-        }
-    };
-}
-
-const verificationConfig = config.verification || {
+const DEFAULT_VERIFICATION_CONFIG = {
     role_name: 'Verified',
     panel_title: '✅ Verification',
     panel_description: 'Click **Verify** to unlock the server.'
 };
+
+function getVerificationConfig(bot) {
+    const fromBot = (bot?.config && typeof bot.config.verification === 'object')
+        ? bot.config.verification
+        : {};
+
+    return {
+        ...DEFAULT_VERIFICATION_CONFIG,
+        ...fromBot
+    };
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -48,6 +30,7 @@ module.exports = {
 
     async execute(interaction, bot) {
         const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+        const verificationConfig = getVerificationConfig(bot);
 
         // Check if target is a text channel
         if (!targetChannel.isTextBased()) {
@@ -96,6 +79,8 @@ module.exports = {
 
     // This function handles the button interaction
     async handleVerifyButton(interaction, bot) {
+        const verificationConfig = getVerificationConfig(bot);
+
         try {
             const member = interaction.member;
             const guild = interaction.guild;

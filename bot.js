@@ -316,12 +316,21 @@ bot.on('messageCreate', async (message) => {
     
     const automod = bot.config?.automod;
     if (!automod || !automod.enabled) return;
+
+    let member = message.member;
+    if (!member) {
+        try {
+            member = await message.guild.members.fetch(message.author.id);
+        } catch {
+            return;
+        }
+    }
     
     // Check exempt roles/channels (with safe defaults)
     const exemptChannels = automod.exempt_channel_ids || [];
     const exemptRoles = automod.exempt_role_ids || [];
     if (exemptChannels.includes(message.channel.id)) return;
-    const memberRoles = message.member.roles.cache.map(r => r.id);
+    const memberRoles = member.roles.cache.map(r => r.id);
     if (exemptRoles.some(roleId => memberRoles.includes(roleId))) return;
     
     let violation = null;
@@ -340,7 +349,7 @@ bot.on('messageCreate', async (message) => {
     // Check all links
     if (automod.block_links && /https?:\/\/[\w\-\.]+/i.test(message.content)) {
         const memberRole = message.guild.roles.cache.find(r => r.name === automod.member_role_name);
-        if (memberRole && message.member.roles.cache.has(memberRole.id)) {
+        if (memberRole && member.roles.cache.has(memberRole.id)) {
             violation = 'Link posted by member';
         }
     }
@@ -374,7 +383,7 @@ bot.on('messageCreate', async (message) => {
                     .send(`⚠️ ${message.author} has been warned. Reason: ${violation}`)
                     .then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
             } else if (action === 'timeout') {
-                await message.member.timeout(automod.repeat_timeout_minutes * 60 * 1000, reason);
+                await member.timeout(automod.repeat_timeout_minutes * 60 * 1000, reason);
                 await message.channel
                     .send(`⚠️ ${message.author} has been timed out for ${automod.repeat_timeout_minutes} minutes. Reason: ${violation}`)
                     .then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
@@ -396,6 +405,15 @@ bot.on('messageCreate', async (message) => {
     
     const antispam = bot.config?.antispam;
     if (!antispam || !antispam.enabled) return;
+
+    let member = message.member;
+    if (!member) {
+        try {
+            member = await message.guild.members.fetch(message.author.id);
+        } catch {
+            member = null;
+        }
+    }
     
     const userId = message.author.id;
     const now = Date.now();
@@ -417,7 +435,7 @@ bot.on('messageCreate', async (message) => {
             await message.delete();
             
             if (antispam.spam_action === 'timeout') {
-                await message.member.timeout(antispam.spam_timeout_minutes * 60 * 1000, 'Anti-Spam: Message rate limit exceeded');
+                await member?.timeout(antispam.spam_timeout_minutes * 60 * 1000, 'Anti-Spam: Message rate limit exceeded');
                 await message.channel.send(`⚠️ ${message.author} has been timed out for ${antispam.spam_timeout_minutes} minutes for spamming.`).then(m => setTimeout(() => m.delete(), 5000));
             }
             
@@ -447,7 +465,7 @@ bot.on('messageCreate', async (message) => {
             await message.delete();
             
             if (antispam.spam_action === 'timeout') {
-                await message.member.timeout(antispam.spam_timeout_minutes * 60 * 1000, 'Anti-Spam: Duplicate messages');
+                await member?.timeout(antispam.spam_timeout_minutes * 60 * 1000, 'Anti-Spam: Duplicate messages');
                 await message.channel.send(`⚠️ ${message.author} has been timed out for ${antispam.spam_timeout_minutes} minutes for duplicate spam.`).then(m => setTimeout(() => m.delete(), 5000));
             }
             

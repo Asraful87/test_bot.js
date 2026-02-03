@@ -12,9 +12,21 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction, bot) {
-        const member = interaction.options.getMember('member');
+        let member = interaction.options.getMember('member');
 
         await interaction.deferReply({ ephemeral: true });
+
+        if (!member) {
+            const user = interaction.options.getUser('member');
+            try {
+                member = await interaction.guild.members.fetch(user.id);
+            } catch (error) {
+                return interaction.editReply({
+                    embeds: [errorEmbed('Error', 'Member not found in this server.')],
+                    ephemeral: true
+                });
+            }
+        }
 
         try {
             const cleared = bot.db.clearWarnings(interaction.guild.id, member.id);

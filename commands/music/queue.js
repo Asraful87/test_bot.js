@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { ensureMusicEnabled } = require('../../utils/music_settings');
 
 const { getQueue } = require('../../utils/music_state');
 
@@ -9,6 +10,7 @@ module.exports = {
         .setDescription('Show the music queue'),
 
     async execute(interaction, bot) {
+        if (!await ensureMusicEnabled(interaction, bot)) return;
         const queue = getQueue(interaction.guild.id);
 
         if (!queue.current && queue.songs.length === 0) {

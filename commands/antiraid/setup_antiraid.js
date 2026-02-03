@@ -1,7 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const fs = require('fs');
-const yaml = require('js-yaml');
-const path = require('path');
 const { requireGuild } = require('../../utils/permissions');
 const { safeDefer, safeError, safeReply } = require('../../utils/respond');
 
@@ -85,7 +82,6 @@ module.exports = {
         if (!requireGuild(interaction)) return;
 
         const subcommand = interaction.options.getSubcommand();
-        const configPath = path.join(__dirname, '../../config.yaml');
 
         if (subcommand === 'toggle') {
             const enabled = interaction.options.getBoolean('enabled');
@@ -109,19 +105,7 @@ module.exports = {
                 console.error('Failed to persist antiraid settings:', e);
             }
 
-            // Best-effort: update config.yaml only if it exists.
-            try {
-                if (fs.existsSync(configPath)) {
-                    const raw = fs.readFileSync(configPath, 'utf8');
-                    const fileConfig = yaml.load(raw) || {};
-                    if (!fileConfig.antiraid) fileConfig.antiraid = { ...DEFAULT_ANTIRAID };
-                    fileConfig.antiraid.enabled = enabled;
-                    fs.writeFileSync(configPath, yaml.dump(fileConfig));
-                }
-            } catch (e) {
-                // Non-fatal in production environments with read-only filesystem.
-                console.error('Failed to write config.yaml for antiraid:', e);
-            }
+            // No file writes at runtime. Config changes are stored in memory + DB.
             
             const embed = new EmbedBuilder()
                 .setColor(enabled ? 0x00ff00 : 0xff0000)

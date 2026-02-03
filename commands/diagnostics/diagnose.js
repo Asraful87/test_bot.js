@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const { successEmbed } = require('../../utils/embeds');
+const { successEmbed, errorEmbed } = require('../../utils/embeds');
 const { getQueue } = require('../../utils/music_state');
 
 function boolIcon(ok) {
@@ -12,20 +12,40 @@ module.exports = {
         .setDescription('Check permissions, role position, and bot status'),
 
     async execute(interaction, bot) {
-        const me = interaction.guild.members.me;
+        if (!interaction.guild) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'This command can only be used in a server.')],
+                ephemeral: true
+            });
+        }
+
+        const me = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+        if (!me) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'Could not resolve bot member in this guild.')],
+                ephemeral: true
+            });
+        }
+
         const channel = interaction.channel;
+        if (!channel) {
+            return interaction.reply({
+                embeds: [errorEmbed('Error', 'Channel context is missing for this interaction.')],
+                ephemeral: true
+            });
+        }
 
         // Check required permissions
         const perms = channel.permissionsFor(me);
         const required = {
-            'ViewChannel': perms.has(PermissionFlagsBits.ViewChannel),
-            'SendMessages': perms.has(PermissionFlagsBits.SendMessages),
-            'EmbedLinks': perms.has(PermissionFlagsBits.EmbedLinks),
-            'ReadMessageHistory': perms.has(PermissionFlagsBits.ReadMessageHistory),
-            'ManageMessages': perms.has(PermissionFlagsBits.ManageMessages),
-            'ModerateMembers': perms.has(PermissionFlagsBits.ModerateMembers),
-            'KickMembers': perms.has(PermissionFlagsBits.KickMembers),
-            'BanMembers': perms.has(PermissionFlagsBits.BanMembers)
+            'ViewChannel': perms?.has(PermissionFlagsBits.ViewChannel) ?? false,
+            'SendMessages': perms?.has(PermissionFlagsBits.SendMessages) ?? false,
+            'EmbedLinks': perms?.has(PermissionFlagsBits.EmbedLinks) ?? false,
+            'ReadMessageHistory': perms?.has(PermissionFlagsBits.ReadMessageHistory) ?? false,
+            'ManageMessages': perms?.has(PermissionFlagsBits.ManageMessages) ?? false,
+            'ModerateMembers': perms?.has(PermissionFlagsBits.ModerateMembers) ?? false,
+            'KickMembers': perms?.has(PermissionFlagsBits.KickMembers) ?? false,
+            'BanMembers': perms?.has(PermissionFlagsBits.BanMembers) ?? false
         };
 
         const missing = Object.entries(required)

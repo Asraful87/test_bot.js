@@ -1,7 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const fs = require('fs');
-const yaml = require('js-yaml');
-const path = require('path');
 
 const DEFAULT_CONFIG = {
     automod: {
@@ -19,24 +16,6 @@ const DEFAULT_CONFIG = {
         spam_action: 'timeout'
     }
 };
-
-function loadConfig(configPath, bot) {
-    try {
-        if (fs.existsSync(configPath)) {
-            const parsed = yaml.load(fs.readFileSync(configPath, 'utf8')) || {};
-            return parsed;
-        }
-    } catch (e) {
-        // fall through to defaults
-    }
-
-    // If the main bot already loaded config into memory, use it as a base.
-    if (bot && bot.config && typeof bot.config === 'object') {
-        return bot.config;
-    }
-
-    return { ...DEFAULT_CONFIG };
-}
 
 function ensureAutomodShape(config) {
     if (!config || typeof config !== 'object') config = {};
@@ -59,10 +38,31 @@ function ensureAutomodShape(config) {
     return config;
 }
 
-function saveConfig(configPath, config) {
-    const dir = path.dirname(configPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(configPath, yaml.dump(config), 'utf8');
+function getEffectiveConfig(bot, guildId) {
+    const fromBot = ensureAutomodShape(bot?.config && typeof bot.config === 'object' ? bot.config : {});
+    const fromSettingsAutomod = bot?.settings?.getModule?.(guildId, 'automod', {}) || {};
+    const fromSettingsAntispam = bot?.settings?.getModule?.(guildId, 'antispam', {}) || {};
+
+    return ensureAutomodShape({
+        automod: { ...fromBot.automod, ...fromSettingsAutomod },
+        antispam: { ...fromBot.antispam, ...fromSettingsAntispam }
+    });
+}
+
+function persistConfig(bot, guildId, config) {
+    if (!bot) return;
+    if (!bot.config) bot.config = {};
+    bot.config.automod = config.automod;
+    bot.config.antispam = config.antispam;
+
+    if (bot?.settings && guildId) {
+        try {
+            bot.settings.setModule(guildId, 'automod', config.automod);
+            bot.settings.setModule(guildId, 'antispam', config.antispam);
+        } catch (e) {
+            console.error('Failed to persist automod settings:', e);
+        }
+    }
 }
 
 module.exports = {
@@ -101,27 +101,17 @@ module.exports = {
 
     async execute(interaction, bot) {
         const subcommand = interaction.options.getSubcommand();
-        const configPath = path.join(__dirname, '../../config.yaml');
-        let config = ensureAutomodShape(loadConfig(configPath, bot));
+        const config = getEffectiveConfig(bot, interaction.guildId);
 
         if (subcommand === 'toggle') {
             const enabled = interaction.options.getBoolean('enabled');
             config.automod.enabled = enabled;
-            
-            try {
-                saveConfig(configPath, config);
-            } catch (e) {
-                console.error('Failed to save config.yaml:', e);
-            }
 
-            if (bot && bot.config) {
-                bot.config.automod = config.automod;
-                bot.config.antispam = config.antispam;
-            }
+            persistConfig(bot, interaction.guildId, config);
             
             const embed = new EmbedBuilder()
                 .setColor(enabled ? 0x00ff00 : 0xff0000)
-                .setTitle('⚙️ AutoMod Configuration')
+                .setTitle('âš™ï¸ AutoMod Configuration')
                 .setDescription(`AutoMod has been **${enabled ? 'enabled' : 'disabled'}**`)
                 .setTimestamp();
             
@@ -133,16 +123,16 @@ module.exports = {
             
             const embed = new EmbedBuilder()
                 .setColor(automod.enabled ? 0x00ff00 : 0xff0000)
-                .setTitle('🛡️ AutoMod Status')
+                .setTitle('ðŸ›¡ï¸ AutoMod Status')
                 .addFields(
-                    { name: 'Status', value: automod.enabled ? '✅ Enabled' : '❌ Disabled', inline: true },
+                    { name: 'Status', value: automod.enabled ? 'âœ… Enabled' : 'âŒ Disabled', inline: true },
                     { name: 'Action on Violation', value: automod.action_on_violation, inline: true },
                     { name: 'Max Mentions', value: automod.max_mentions.toString(), inline: true },
                     { name: 'Block Discord Invites', value: automod.block_discord_invites ? 'Yes' : 'No', inline: true },
                     { name: 'Block Links', value: automod.block_links ? 'Yes' : 'No', inline: true },
                     { name: 'Blocked Words', value: `${automod.blocked_words.length} words/phrases`, inline: true },
                     { name: '\u200B', value: '**Anti-Spam Settings**' },
-                    { name: 'Anti-Spam', value: antispam.enabled ? '✅ Enabled' : '❌ Disabled', inline: true },
+                    { name: 'Anti-Spam', value: antispam.enabled ? 'âœ… Enabled' : 'âŒ Disabled', inline: true },
                     { name: 'Rate Limit', value: `${antispam.max_messages} messages/${antispam.per_seconds}s`, inline: true },
                     { name: 'Spam Action', value: antispam.spam_action, inline: true }
                 )
@@ -155,26 +145,17 @@ module.exports = {
             
             if (!config.automod.blocked_words.includes(word)) {
                 config.automod.blocked_words.push(word);
-                try {
-                    saveConfig(configPath, config);
-                } catch (e) {
-                    console.error('Failed to save config.yaml:', e);
-                }
-
-                if (bot && bot.config) {
-                    bot.config.automod = config.automod;
-                    bot.config.antispam = config.antispam;
-                }
+                persistConfig(bot, interaction.guildId, config);
                 
                 const embed = new EmbedBuilder()
                     .setColor(0x00ff00)
-                    .setTitle('✅ Word Added')
+                    .setTitle('âœ… Word Added')
                     .setDescription(`Added \`${word}\` to blocked words list`)
                     .setTimestamp();
                 
                 await interaction.reply({ embeds: [embed] });
             } else {
-                await interaction.reply({ content: '❌ That word is already in the blocked list!', ephemeral: true });
+                await interaction.reply({ content: 'âŒ That word is already in the blocked list!', ephemeral: true });
             }
         }
         else if (subcommand === 'remove_word') {
@@ -183,26 +164,17 @@ module.exports = {
             
             if (index > -1) {
                 config.automod.blocked_words.splice(index, 1);
-                try {
-                    saveConfig(configPath, config);
-                } catch (e) {
-                    console.error('Failed to save config.yaml:', e);
-                }
-
-                if (bot && bot.config) {
-                    bot.config.automod = config.automod;
-                    bot.config.antispam = config.antispam;
-                }
+                persistConfig(bot, interaction.guildId, config);
                 
                 const embed = new EmbedBuilder()
                     .setColor(0x00ff00)
-                    .setTitle('✅ Word Removed')
+                    .setTitle('âœ… Word Removed')
                     .setDescription(`Removed \`${word}\` from blocked words list`)
                     .setTimestamp();
                 
                 await interaction.reply({ embeds: [embed] });
             } else {
-                await interaction.reply({ content: '❌ That word is not in the blocked list!', ephemeral: true });
+                await interaction.reply({ content: 'âŒ That word is not in the blocked list!', ephemeral: true });
             }
         }
     }

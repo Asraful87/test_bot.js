@@ -14,6 +14,7 @@ const ytdl = require('@distube/ytdl-core');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
 const { getQueue, destroyQueue } = require('../../utils/music_state');
 const { safeDefer, safeReply, safeError } = require('../../utils/respond');
+const { ensureMusicEnabled } = require('../../utils/music_settings');
 const { requireGuild } = require('../../utils/permissions');
 
 const SEARCH_TIMEOUT_MS = 20000;
@@ -268,6 +269,7 @@ module.exports = {
 
     async execute(interaction, bot) {
         if (!requireGuild(interaction)) return;
+        if (!await ensureMusicEnabled(interaction, bot)) return;
 
         // Defer reply immediately to avoid timeout
         await safeDefer(interaction);

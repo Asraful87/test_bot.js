@@ -1,22 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
-const yaml = require('js-yaml');
-const fs = require('fs');
-const path = require('path');
-
-// Load config
-let config;
-try {
-    const configPath = path.join(__dirname, '../../config.yaml');
-    if (fs.existsSync(configPath)) {
-        config = yaml.load(fs.readFileSync(configPath, 'utf8'));
-    } else {
-        config = { tickets: {} };
-    }
-} catch (e) {
-    console.error('Failed to load config.yaml:', e?.message || String(e));
-    config = { tickets: {} };
-}
 
 const DEFAULT_TICKET_CONFIG = {
     enabled: true,
@@ -34,17 +17,25 @@ const DEFAULT_TICKET_CONFIG = {
     ]
 };
 
-const ticketConfig = {
-    ...DEFAULT_TICKET_CONFIG,
-    ...(config && config.tickets && typeof config.tickets === 'object' ? config.tickets : {})
-};
+function getTicketConfig(bot) {
+    const fromBot = (bot?.config && typeof bot.config.tickets === 'object')
+        ? bot.config.tickets
+        : {};
 
-if (!Array.isArray(ticketConfig.options)) {
-    ticketConfig.options = DEFAULT_TICKET_CONFIG.options;
+    const merged = {
+        ...DEFAULT_TICKET_CONFIG,
+        ...fromBot
+    };
+
+    if (!Array.isArray(merged.options)) {
+        merged.options = DEFAULT_TICKET_CONFIG.options;
+    }
+
+    return merged;
 }
 
-function ticketsEnabled() {
-    return ticketConfig.enabled !== false;
+function ticketsEnabled(bot) {
+    return getTicketConfig(bot).enabled !== false;
 }
 
 // Utility functions
@@ -76,6 +67,7 @@ function parseTopic(topic) {
 }
 
 async function getLogChannel(bot, guild) {
+    const ticketConfig = getTicketConfig(bot);
     // Try to find mod-log channel by name
     const fallbackName = ticketConfig.transcript_channel_name || 'mod-log';
     const channel = guild.channels.cache.find(ch => 
@@ -127,13 +119,14 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction, bot) {
-        if (!ticketsEnabled()) {
+        if (!ticketsEnabled(bot)) {
             return interaction.reply({
                 embeds: [errorEmbed('Disabled', 'Ticket system is disabled in config.yaml.')],
                 ephemeral: true
             });
         }
 
+        const ticketConfig = getTicketConfig(bot);
         const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 
         if (!targetChannel.isTextBased()) {
@@ -189,13 +182,14 @@ module.exports = {
 
     // Handle ticket select menu
     async handleTicketSelect(interaction, bot) {
-        if (!ticketsEnabled()) {
+        if (!ticketsEnabled(bot)) {
             return interaction.reply({
                 embeds: [errorEmbed('Disabled', 'Ticket system is disabled in config.yaml.')],
                 ephemeral: true
             });
         }
 
+        const ticketConfig = getTicketConfig(bot);
         try {
             const ticketType = interaction.values[0];
             const guild = interaction.guild;
@@ -358,13 +352,14 @@ module.exports = {
 
     // Handle ticket action buttons
     async handleTicketButton(interaction, bot, action) {
-        if (!ticketsEnabled()) {
+        if (!ticketsEnabled(bot)) {
             return interaction.reply({
                 embeds: [errorEmbed('Disabled', 'Ticket system is disabled in config.yaml.')],
                 ephemeral: true
             });
         }
 
+        const ticketConfig = getTicketConfig(bot);
         const channel = interaction.channel;
         const member = interaction.member;
         const guild = interaction.guild;

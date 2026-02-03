@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { ensureMusicEnabled } = require('../../utils/music_settings');
 const { getQueue } = require('../../utils/music_state');
 
 module.exports = {
@@ -8,6 +9,7 @@ module.exports = {
         .setDescription('Skip the current song'),
 
     async execute(interaction, bot) {
+        if (!await ensureMusicEnabled(interaction, bot)) return;
         const queue = getQueue(interaction.guild.id);
         if (!queue.connection || !queue.player) {
             return interaction.reply({

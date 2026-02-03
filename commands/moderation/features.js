@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+﻿const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -7,12 +7,12 @@ module.exports = {
 
     async execute(interaction, bot) {
         const embed = new EmbedBuilder()
-            .setTitle('📋 Moderation Features')
+            .setTitle('ðŸ“‹ Moderation Features')
             .setColor('Blue')
             .setDescription('Here are all the moderation features available:')
             .addFields(
                 {
-                    name: '👤 Member Management',
+                    name: 'ðŸ‘¤ Member Management',
                     value: '`/kick` - Kick a member\n' +
                            '`/ban` - Ban a member\n' +
                            '`/unban` - Unban a user\n' +
@@ -23,7 +23,7 @@ module.exports = {
                     inline: false
                 },
                 {
-                    name: '⚠️ Warning System',
+                    name: 'âš ï¸ Warning System',
                     value: '`/warn` - Warn a member\n' +
                            '`/warnings` - View warnings\n' +
                            '`/clearwarnings` - Clear all warnings\n' +
@@ -31,13 +31,13 @@ module.exports = {
                     inline: false
                 },
                 {
-                    name: '🗑️ Message Management',
+                    name: 'ðŸ—‘ï¸ Message Management',
                     value: '`/purge` - Delete messages in bulk\n' +
                            '`/say` - Make the bot send a message',
                     inline: false
                 },
                 {
-                    name: '🎭 Role Management',
+                    name: 'ðŸŽ­ Role Management',
                     value: '`/addrole` - Add role to member\n' +
                            '`/removerole` - Remove role from member\n' +
                            '`/createrole` - Create a new role\n' +
@@ -48,7 +48,7 @@ module.exports = {
                     inline: false
                 },
                 {
-                    name: '📢 Channel Management',
+                    name: 'ðŸ“¢ Channel Management',
                     value: '`/createchannel` - Create a channel\n' +
                            '`/deletechannel` - Delete a channel\n' +
                            '`/lockchannel` - Lock a channel\n' +
@@ -59,8 +59,9 @@ module.exports = {
                     inline: false
                 },
                 {
-                    name: '🎵 Music System',
-                    value: '`/play` - Play music from YouTube\n' +
+                    name: 'ðŸŽµ Music System',
+                    value: '`/music` - Enable/disable music in this server\n' +
+                           '`/play` - Play music from YouTube\n' +
                            '`/pause` - Pause music\n' +
                            '`/resume` - Resume music\n' +
                            '`/skip` - Skip current song\n' +
@@ -72,7 +73,7 @@ module.exports = {
                     inline: false
                 },
                 {
-                    name: '🔧 Utilities',
+                    name: 'ðŸ”§ Utilities',
                     value: '`/ping` - Check bot latency\n' +
                            '`/serverinfo` - Server information\n' +
                            '`/userinfo` - User information\n' +

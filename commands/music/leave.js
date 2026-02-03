@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 
 const { getQueue, destroyQueue } = require('../../utils/music_state');
+const { ensureMusicEnabled } = require('../../utils/music_settings');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,6 +9,7 @@ module.exports = {
         .setDescription('Disconnect the bot from voice channel'),
 
     async execute(interaction, bot) {
+        if (!await ensureMusicEnabled(interaction, bot)) return;
         const queue = getQueue(interaction.guild.id);
 
         if (!queue.connection) {

@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { AudioPlayerStatus } = require('@discordjs/voice');
 const { successEmbed, errorEmbed } = require('../../utils/embeds');
+const { ensureMusicEnabled } = require('../../utils/music_settings');
 
 const { getQueue } = require('../../utils/music_state');
 
@@ -16,6 +17,7 @@ module.exports = {
                 .setMaxValue(100)),
 
     async execute(interaction, bot) {
+        if (!await ensureMusicEnabled(interaction, bot)) return;
         const queue = getQueue(interaction.guild.id);
         const volume = interaction.options.getInteger('level');
 
