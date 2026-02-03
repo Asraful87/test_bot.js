@@ -78,6 +78,15 @@ function resolveActivityType(value) {
     }
 }
 
+function shuffleArray(items) {
+    const arr = Array.isArray(items) ? [...items] : [];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
 // Configure play-dl tokens when provided.
 // Prefer environment variables (Heroku/GitHub secrets) over config.yaml.
 // IMPORTANT: This must work even when config.yaml is missing (e.g. Heroku).
@@ -192,6 +201,58 @@ bot.once('ready', async () => {
         } catch (err) {
             logger.warn('Failed to set presence:', err);
         }
+    }
+    // Motivational messages scheduler
+    try {
+        const motivational = bot.config?.motivational || {};
+        const enabled = Boolean(motivational.enabled);
+        const channelId = (motivational.channel_id || '').toString().trim();
+        const intervalMinutesRaw = Number(motivational.interval_minutes);
+        const intervalMinutes = Number.isFinite(intervalMinutesRaw) && intervalMinutesRaw > 0
+            ? intervalMinutesRaw
+            : 15;
+
+        const rawQuotes = Array.isArray(motivational.quotes) ? motivational.quotes : [];
+        const quotes = rawQuotes
+            .map(q => (typeof q === 'string' ? q.trim() : ''))
+            .filter(q => q.length > 0);
+
+        if (enabled) {
+            if (!channelId) {
+                logger.warn('Motivational messages enabled but channel_id is not set.');
+            } else if (quotes.length === 0) {
+                logger.warn('Motivational messages enabled but no quotes were provided.');
+            } else {
+                let queue = shuffleArray(quotes);
+                let lastQuote = null;
+
+                setInterval(async () => {
+                    try {
+                        if (queue.length === 0) queue = shuffleArray(quotes);
+                        let quote = queue.shift();
+                        if (quote === lastQuote && queue.length > 0) {
+                            queue.push(quote);
+                            quote = queue.shift();
+                        }
+                        lastQuote = quote;
+
+                        const channel = await bot.channels.fetch(channelId).catch(() => null);
+                        if (!channel || !channel.isTextBased()) {
+                            logger.warn(`Motivational messages: channel ${channelId} not found or not text-based.`);
+                            return;
+                        }
+
+                        await channel.send({ content: quote });
+                    } catch (error) {
+                        logger.error('Motivational message send failed:', error);
+                    }
+                }, intervalMinutes * 60 * 1000);
+
+                logger.info(`Motivational messages scheduled every ${intervalMinutes} minute(s) for channel ${channelId}.`);
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to initialize motivational messages:', error);
     }
     logger.info(`ℹ️ Loaded ${bot.commands.size} command module(s) from disk`);
     logger.info(`💡 Member cache: Lazy-loaded on autocomplete`);

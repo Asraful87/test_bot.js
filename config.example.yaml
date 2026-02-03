@@ -67,5 +67,16 @@ tickets:
   panel_title: "🎫 Support Tickets"
   panel_description: "Click a button to create a ticket."
 
+motivational:
+  enabled: false
+  channel_id: ""
+  interval_minutes: 15
+  quotes:
+    - "Keep going. Every step counts."
+    - "Small progress is still progress."
+    - "You are capable of more than you think."
+    - "Focus on the next right action."
+    - "Consistency beats intensity."
+
 
 
