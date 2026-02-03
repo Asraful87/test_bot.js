@@ -13,10 +13,15 @@ const commands = [];
 const commandsPath = join(__dirname, '..', 'commands');
 
 // Load commands from /commands/*/*.js (same structure as bot.js)
-function loadCommands(dir) {
+function loadCommands(dir, options = {}) {
   const folders = readdirSync(dir);
+  const disabledFolders = new Set(options.disabledFolders || []);
   
   for (const folder of folders) {
+    if (disabledFolders.has(folder)) {
+      console.log(`- Skipping ${folder} commands (disabled by config)`);
+      continue;
+    }
     const folderPath = join(dir, folder);
     if (!statSync(folderPath).isDirectory()) continue;
     
@@ -36,7 +41,21 @@ function loadCommands(dir) {
   }
 }
 
-loadCommands(commandsPath);
+let disabledFolders = [];
+try {
+  const yaml = require('js-yaml');
+  const fs = require('fs');
+  if (fs.existsSync('config.yaml')) {
+    const config = yaml.load(fs.readFileSync('config.yaml', 'utf8')) || {};
+    if (config?.music?.enabled === false) {
+      disabledFolders.push('music');
+    }
+  }
+} catch {
+  // ignore config parse errors for deploy
+}
+
+loadCommands(commandsPath, { disabledFolders });
 
 console.log(`\n📦 Commands found: ${commands.length}`);
 console.log(`   ${commands.map(c => c.name).join(', ')}\n`);

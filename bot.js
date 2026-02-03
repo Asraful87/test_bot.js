@@ -229,6 +229,7 @@ class ModBot extends Client {
 
     async loadCommands() {
         const commandsPath = join(__dirname, 'commands');
+        const musicDisabled = this.config?.music?.enabled === false;
         
         if (!fs.existsSync(commandsPath)) {
             fs.mkdirSync(commandsPath, { recursive: true });
@@ -237,6 +238,10 @@ class ModBot extends Client {
         const commandFolders = readdirSync(commandsPath);
 
         for (const folder of commandFolders) {
+            if (musicDisabled && folder === 'music') {
+                logger.info('Music commands disabled by config. Skipping /commands/music.');
+                continue;
+            }
             const folderPath = join(commandsPath, folder);
             if (!fs.statSync(folderPath).isDirectory()) continue;
 
