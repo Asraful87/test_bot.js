@@ -11,6 +11,7 @@ const play = require('play-dl');
 const DatabaseManager = require('./database/db_manager');
 const SettingsService = require('./services/settings_service');
 const { setupLogging, getLogger } = require('./utils/logging');
+const { MUSIC_COMMAND_NAMES, hideMusicCommands } = require('./utils/music_settings');
 const ffmpegStatic = require('ffmpeg-static');
 
 dotenv.config();
@@ -178,6 +179,21 @@ async function resolveMotivationalChannel(bot, guild) {
     return null;
 }
 
+async function hideDisabledMusicCommands(botClient) {
+    if (botClient?.config?.music?.enabled !== false) return;
+
+    for (const [guildId] of botClient.guilds.cache) {
+        try {
+            const { removed } = await hideMusicCommands(botClient, guildId, { includeControl: true });
+            if (removed > 0) {
+                logger.info(`Music disabled in config. Removed ${removed} stale music command(s) in guild ${guildId}.`);
+            }
+        } catch (error) {
+            logger.warn(`Failed to remove stale music commands in guild ${guildId}:`, error);
+        }
+    }
+}
+
 // Configure play-dl tokens when provided.
 // Prefer environment variables (Heroku/GitHub secrets) over config.yaml.
 // IMPORTANT: This must work even when config.yaml is missing (e.g. Heroku).
@@ -284,6 +300,7 @@ const bot = new ModBot();
 bot.once('ready', async () => {
     logger.info(`Logged in as ${bot.user.tag} (ID: ${bot.user.id})`);
     logger.info(`Connected to ${bot.guilds.cache.size} guild(s)`);
+    await hideDisabledMusicCommands(bot);
 
     const statusText = bot.config?.bot?.status;
     if (statusText && bot.user) {
@@ -433,7 +450,16 @@ bot.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     const command = bot.commands.get(interaction.commandName);
-    if (!command) return;
+    if (!command) {
+        if (MUSIC_COMMAND_NAMES.includes(interaction.commandName)) {
+            const configHardOff = bot?.config?.music?.enabled === false;
+            const message = configHardOff
+                ? 'Music is disabled in config.yaml. These commands are being hidden.'
+                : 'Music is disabled in this server. Use /music on to re-enable it.';
+            await interaction.reply({ content: message, ephemeral: true }).catch(() => {});
+        }
+        return;
+    }
 
     const cooldownSeconds = getDestructiveCooldownSeconds(bot);
     if (cooldownSeconds > 0 && DESTRUCTIVE_COMMANDS.has(interaction.commandName)) {

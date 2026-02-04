@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { getMusicEnabled } = require('../../utils/music_settings');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -67,7 +68,7 @@ module.exports = {
             }
         ];
 
-        const musicEnabled = bot?.config?.music?.enabled !== false;
+        const musicEnabled = getMusicEnabled(bot, interaction.guildId);
         if (musicEnabled) {
             fields.splice(5, 0, {
                 name: 'ðŸŽµ Music System',
